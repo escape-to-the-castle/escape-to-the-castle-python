@@ -2,27 +2,31 @@ from __future__ import annotations
 
 import sys
 import time
-from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
 import pygame
 
 from .education.question_bank import Question, QuestionBank
+from .game.assets import load_brackeys_sprites
+from .game.config import (
+    FPS,
+    GROUND_TILE_WIDTH,
+    GROUND_Y,
+    PLAYER_SPRITE_SIZE,
+    SCREEN_HEIGHT as HEIGHT,
+    SCREEN_WIDTH as WIDTH,
+    SHIELD_INVULNERABILITY_SECONDS,
+    SPIKE_VISUAL_SIZE,
+)
 from .game.entities import Player, WorldObject
+from .game.levels import PhaseId, build_layout
 from .hardware.interface import Action, OutputState
 from .hardware.keyboard import KeyboardHardware
 from .monitoring.performance import PerformanceMonitor
 
 
-WIDTH, HEIGHT = 960, 540
-GROUND_Y = 460
-FPS = 60
 ROOT = Path(__file__).resolve().parents[1]
-PLAYER_SPRITE_SIZE = (60, 76)
-SPIKE_VISUAL_SIZE = (66, 36)
-SHIELD_INVULNERABILITY_SECONDS = 3.0
-GROUND_TILE_WIDTH = 64
 
 
 class GameState(Enum):
@@ -34,24 +38,6 @@ class GameState(Enum):
     VICTORY = auto()
 
 
-class PhaseId(Enum):
-    PROTOTYPE = auto()
-    PHASE_1 = auto()
-
-
-@dataclass(frozen=True)
-class PhaseLayout:
-    name: str
-    world_width: int
-    player_start_x: int
-    obstacles: list[WorldObject]
-    portals: list[WorldObject]
-    platforms: list[WorldObject]
-    holes: list[WorldObject]
-    ground_segments: list[WorldObject]
-    castle: WorldObject
-
-
 class Game:
     def __init__(self) -> None:
         pygame.init()
@@ -61,131 +47,15 @@ class Game:
         self.font = pygame.font.Font(None, 34)
         self.small_font = pygame.font.Font(None, 26)
         self.large_font = pygame.font.Font(None, 56)
-        self.sprites = self.load_brackeys_sprites()
+        self.sprites = load_brackeys_sprites(ROOT)
         self.hardware = KeyboardHardware()
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")
         self.monitor = PerformanceMonitor()
         self.running = True
         self.current_phase = PhaseId.PROTOTYPE
-        self.active_layout = self.build_prototype_layout()
+        self.active_layout = build_layout(self.current_phase)
         self.start_phase(self.current_phase)
         self.show_main_menu()
-
-    def load_sheet_frames(
-        self,
-        path: Path,
-        frame_width: int,
-        frame_height: int,
-        columns: int,
-        rows: int,
-        scale_to: tuple[int, int] | None = None,
-    ) -> list[pygame.Surface]:
-        sheet = pygame.image.load(path).convert_alpha()
-        frames: list[pygame.Surface] = []
-        for row in range(rows):
-            for column in range(columns):
-                rect = pygame.Rect(column * frame_width, row * frame_height, frame_width, frame_height)
-                if rect.right > sheet.get_width() or rect.bottom > sheet.get_height():
-                    continue
-                frame = sheet.subsurface(rect).copy()
-                if scale_to is not None:
-                    frame = pygame.transform.smoothscale(frame, scale_to)
-                frames.append(frame)
-        return frames
-
-    def load_single_sprite(self, path: Path, scale_to: tuple[int, int] | None = None) -> pygame.Surface | None:
-        if not path.exists():
-            return None
-        try:
-            surface = pygame.image.load(path).convert_alpha()
-        except pygame.error:
-            return None
-        if scale_to is not None:
-            surface = pygame.transform.smoothscale(surface, scale_to)
-        return surface
-
-    def load_brackeys_sprites(self) -> dict[str, object]:
-        sprites: dict[str, object] = {}
-        brackeys = ROOT / "brackeys_platformer_assets" / "sprites"
-        sprites["player_idle"] = self.load_sheet_frames(brackeys / "knight.png", 32, 32, 4, 1, PLAYER_SPRITE_SIZE)
-        sprites["player_run"] = self.load_sheet_frames(brackeys / "knight.png", 32, 32, 4, 2, PLAYER_SPRITE_SIZE)[4:8]
-        player_jump = self.load_sheet_frames(brackeys / "knight.png", 32, 32, 1, 1, PLAYER_SPRITE_SIZE)
-        sprites["player_jump"] = player_jump[0] if player_jump else None
-        sprites["coins"] = self.load_sheet_frames(brackeys / "coin.png", 16, 16, 12, 1, (20, 20))
-        sprites["platform_rows"] = self.load_sheet_frames(brackeys / "platforms.png", 64, 16, 1, 4)
-        sprites["fruit"] = self.load_single_sprite(brackeys / "fruit.png", (34, 34))
-        return sprites
-
-    def make_ground_segments(self, world_width: int, hole_ranges: list[tuple[int, int]]) -> list[WorldObject]:
-        segments: list[WorldObject] = []
-        current_x = 0
-        for hole_start, hole_end in sorted(hole_ranges):
-            hole_start = max(0, min(hole_start, world_width))
-            hole_end = max(0, min(hole_end, world_width))
-            if hole_start > current_x:
-                segments.append(WorldObject(current_x, GROUND_Y, hole_start - current_x, HEIGHT - GROUND_Y))
-            current_x = max(current_x, hole_end)
-        if current_x < world_width:
-            segments.append(WorldObject(current_x, GROUND_Y, world_width - current_x, HEIGHT - GROUND_Y))
-        return segments
-
-    def build_prototype_layout(self) -> PhaseLayout:
-        world_width = 2600
-        holes: list[WorldObject] = []
-        return PhaseLayout(
-            name="Protótipo",
-            world_width=world_width,
-            player_start_x=80,
-            obstacles=[
-                WorldObject(526, GROUND_Y - 24, 48, 24),
-                WorldObject(1056, GROUND_Y - 24, 48, 24),
-                WorldObject(1711, GROUND_Y - 24, 48, 24),
-            ],
-            portals=[
-                WorldObject(760, GROUND_Y - 92, 44, 92),
-                WorldObject(1380, GROUND_Y - 92, 44, 92),
-                WorldObject(2050, GROUND_Y - 92, 44, 92),
-            ],
-            platforms=[],
-            holes=holes,
-            ground_segments=self.make_ground_segments(world_width, []),
-            castle=WorldObject(2380, GROUND_Y - 220, 200, 220),
-        )
-
-    def build_phase_1_layout(self) -> PhaseLayout:
-        world_width = 3100
-        hole_ranges = [(520, 700), (1230, 1395), (2010, 2180)]
-        holes = [WorldObject(start, GROUND_Y, end - start, HEIGHT - GROUND_Y) for start, end in hole_ranges]
-        return PhaseLayout(
-            name="Fase 1",
-            world_width=world_width,
-            player_start_x=70,
-            obstacles=[
-                WorldObject(420, GROUND_Y - 24, 48, 24),
-                WorldObject(930, GROUND_Y - 144, 48, 24),
-                WorldObject(1590, GROUND_Y - 24, 48, 24),
-                WorldObject(1885, GROUND_Y - 114, 48, 24),
-                WorldObject(2460, GROUND_Y - 24, 48, 24),
-            ],
-            portals=[
-                WorldObject(320, GROUND_Y - 92, 44, 92),
-                WorldObject(865, GROUND_Y - 182, 44, 92),
-                WorldObject(1480, GROUND_Y - 152, 44, 92),
-                WorldObject(2140, GROUND_Y - 92, 44, 92),
-                WorldObject(2660, GROUND_Y - 212, 44, 92),
-            ],
-            platforms=[
-                WorldObject(760, GROUND_Y - 96, 220, 16),
-                WorldObject(1120, GROUND_Y - 66, 180, 16),
-                WorldObject(1430, GROUND_Y - 126, 220, 16),
-                WorldObject(1780, GROUND_Y - 96, 180, 16),
-                WorldObject(2310, GROUND_Y - 126, 220, 16),
-                WorldObject(2580, GROUND_Y - 186, 200, 16),
-            ],
-            holes=holes,
-            ground_segments=self.make_ground_segments(world_width, hole_ranges),
-            castle=WorldObject(2890, GROUND_Y - 220, 200, 220),
-        )
 
     def reset_phase(self) -> None:
         self.player = Player(self.active_layout.player_start_x, GROUND_Y)
@@ -228,10 +98,7 @@ class Game:
 
     def start_phase(self, phase: PhaseId) -> None:
         self.current_phase = phase
-        if phase == PhaseId.PHASE_1:
-            self.active_layout = self.build_phase_1_layout()
-        else:
-            self.active_layout = self.build_prototype_layout()
+        self.active_layout = build_layout(phase)
         self.reset_phase()
 
     def answer_index(self, actions: set[Action]) -> int | None:

@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import pygame
 
+from .config import (
+    PLAYER_GRAVITY,
+    PLAYER_HEIGHT,
+    PLAYER_JUMP_SPEED,
+    PLAYER_SPEED,
+    PLAYER_WIDTH,
+)
+
 
 class Player:
     # A colisão é deliberadamente menor que o sprite para deixar os
     # movimentos e saltos mais tolerantes nas bordas dos obstáculos.
-    WIDTH = 30
-    HEIGHT = 46
-    SPEED = 270.0
-    JUMP_SPEED = -560.0
-    GRAVITY = 1450.0
+    WIDTH = PLAYER_WIDTH
+    HEIGHT = PLAYER_HEIGHT
+    SPEED = PLAYER_SPEED
+    JUMP_SPEED = PLAYER_JUMP_SPEED
+    GRAVITY = PLAYER_GRAVITY
 
     def __init__(self, x: float, ground_y: int) -> None:
         self.x = x
