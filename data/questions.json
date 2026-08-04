@@ -1,0 +1,137 @@
+[
+  {
+    "id": 1,
+    "category": "Matemática",
+    "difficulty": 1,
+    "text": "Quanto é 7 + 5?",
+    "options": ["10", "11", "12", "13"],
+    "correct_index": 2,
+    "explanation": "Somando 7 com 5, chegamos a 12."
+  },
+  {
+    "id": 2,
+    "category": "Português",
+    "difficulty": 1,
+    "text": "Qual palavra é um animal?",
+    "options": ["Cadeira", "Cachorro", "Janela", "Lápis"],
+    "correct_index": 1,
+    "explanation": "Cachorro é um animal."
+  },
+  {
+    "id": 3,
+    "category": "Ciências",
+    "difficulty": 1,
+    "text": "Qual parte da planta absorve água do solo?",
+    "options": ["Flor", "Folha", "Raiz", "Fruto"],
+    "correct_index": 2,
+    "explanation": "A raiz absorve água e sais minerais do solo."
+  },
+  {
+    "id": 4,
+    "category": "Lógica",
+    "difficulty": 1,
+    "text": "Qual número completa: 2, 4, 6, __?",
+    "options": ["7", "8", "9", "10"],
+    "correct_index": 1,
+    "explanation": "A sequência aumenta de dois em dois, então o próximo é 8."
+  },
+  {
+    "id": 5,
+    "category": "Matemática",
+    "difficulty": 2,
+    "text": "Uma caixa tem 3 fileiras com 4 bolas. Quantas bolas há?",
+    "options": ["7", "10", "12", "14"],
+    "correct_index": 2,
+    "explanation": "Três grupos de quatro formam 3 x 4 = 12."
+  },
+  {
+    "id": 6,
+    "category": "Matemática",
+    "difficulty": 1,
+    "text": "Quanto é 15 - 7?",
+    "options": ["6", "7", "8", "9"],
+    "correct_index": 2,
+    "explanation": "Tirando 7 de 15, restam 8."
+  },
+  {
+    "id": 7,
+    "category": "Português",
+    "difficulty": 1,
+    "text": "Qual é o plural de flor?",
+    "options": ["Flors", "Flores", "Florais", "Floridos"],
+    "correct_index": 1,
+    "explanation": "O plural de flor é flores."
+  },
+  {
+    "id": 8,
+    "category": "Ciências",
+    "difficulty": 1,
+    "text": "Qual planeta é conhecido como Planeta Vermelho?",
+    "options": ["Terra", "Vênus", "Marte", "Júpiter"],
+    "correct_index": 2,
+    "explanation": "Marte é chamado de Planeta Vermelho por causa da cor de sua superfície."
+  },
+  {
+    "id": 9,
+    "category": "Geografia",
+    "difficulty": 1,
+    "text": "Qual é a capital do Brasil?",
+    "options": ["São Paulo", "Salvador", "Brasília", "Rio de Janeiro"],
+    "correct_index": 2,
+    "explanation": "Brasília é a capital do Brasil."
+  },
+  {
+    "id": 10,
+    "category": "Lógica",
+    "difficulty": 1,
+    "text": "Qual figura tem três lados?",
+    "options": ["Quadrado", "Círculo", "Triângulo", "Retângulo"],
+    "correct_index": 2,
+    "explanation": "O triângulo é uma figura formada por três lados."
+  },
+  {
+    "id": 11,
+    "category": "Matemática",
+    "difficulty": 2,
+    "text": "Quanto é 6 x 5?",
+    "options": ["25", "30", "35", "40"],
+    "correct_index": 1,
+    "explanation": "Seis grupos de cinco formam 30."
+  },
+  {
+    "id": 12,
+    "category": "Português",
+    "difficulty": 2,
+    "text": "Qual palavra está escrita corretamente?",
+    "options": ["Caza", "Kasa", "Casa", "Cassa"],
+    "correct_index": 2,
+    "explanation": "A palavra casa é escrita com a letra s."
+  },
+  {
+    "id": 13,
+    "category": "Ciências",
+    "difficulty": 2,
+    "text": "Em qual estado a água vira gelo?",
+    "options": ["Gasoso", "Líquido", "Sólido", "Pastoso"],
+    "correct_index": 2,
+    "explanation": "Quando congela, a água passa para o estado sólido."
+  },
+  {
+    "id": 14,
+    "category": "Geografia",
+    "difficulty": 2,
+    "text": "Em qual continente fica o Brasil?",
+    "options": ["África", "América do Sul", "Europa", "Ásia"],
+    "correct_index": 1,
+    "explanation": "O Brasil está localizado na América do Sul."
+  },
+  {
+    "id": 15,
+    "category": "Lógica",
+    "difficulty": 2,
+    "text": "Qual número completa: 5, 10, 15, __?",
+    "options": ["18", "20", "21", "25"],
+    "correct_index": 1,
+    "explanation": "A sequência aumenta de cinco em cinco, então o próximo número é 20."
+  }
+]
