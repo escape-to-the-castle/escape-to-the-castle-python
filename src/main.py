@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import time
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
@@ -16,19 +17,39 @@ from .monitoring.performance import PerformanceMonitor
 
 WIDTH, HEIGHT = 960, 540
 GROUND_Y = 460
-WORLD_WIDTH = 2600
 FPS = 60
 ROOT = Path(__file__).resolve().parents[1]
 PLAYER_SPRITE_SIZE = (60, 76)
 SPIKE_VISUAL_SIZE = (66, 36)
+SHIELD_INVULNERABILITY_SECONDS = 3.0
+GROUND_TILE_WIDTH = 64
 
 
 class GameState(Enum):
+    MENU = auto()
     PLAYING = auto()
     QUESTION = auto()
     FEEDBACK = auto()
     GAME_OVER = auto()
     VICTORY = auto()
+
+
+class PhaseId(Enum):
+    PROTOTYPE = auto()
+    PHASE_1 = auto()
+
+
+@dataclass(frozen=True)
+class PhaseLayout:
+    name: str
+    world_width: int
+    player_start_x: int
+    obstacles: list[WorldObject]
+    portals: list[WorldObject]
+    platforms: list[WorldObject]
+    holes: list[WorldObject]
+    ground_segments: list[WorldObject]
+    castle: WorldObject
 
 
 class Game:
@@ -45,7 +66,10 @@ class Game:
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")
         self.monitor = PerformanceMonitor()
         self.running = True
-        self.reset()
+        self.current_phase = PhaseId.PROTOTYPE
+        self.active_layout = self.build_prototype_layout()
+        self.start_phase(self.current_phase)
+        self.show_main_menu()
 
     def load_sheet_frames(
         self,
@@ -92,32 +116,123 @@ class Game:
         sprites["fruit"] = self.load_single_sprite(brackeys / "fruit.png", (34, 34))
         return sprites
 
-    def reset(self) -> None:
-        self.player = Player(80, GROUND_Y)
-        self.obstacles = [
-            WorldObject(526, GROUND_Y - 24, 48, 24),
-            WorldObject(1056, GROUND_Y - 24, 48, 24),
-            WorldObject(1711, GROUND_Y - 24, 48, 24),
-        ]
-        self.portals = [
-            WorldObject(760, GROUND_Y - 92, 44, 92),
-            WorldObject(1380, GROUND_Y - 92, 44, 92),
-            WorldObject(2050, GROUND_Y - 92, 44, 92),
+    def make_ground_segments(self, world_width: int, hole_ranges: list[tuple[int, int]]) -> list[WorldObject]:
+        segments: list[WorldObject] = []
+        current_x = 0
+        for hole_start, hole_end in sorted(hole_ranges):
+            hole_start = max(0, min(hole_start, world_width))
+            hole_end = max(0, min(hole_end, world_width))
+            if hole_start > current_x:
+                segments.append(WorldObject(current_x, GROUND_Y, hole_start - current_x, HEIGHT - GROUND_Y))
+            current_x = max(current_x, hole_end)
+        if current_x < world_width:
+            segments.append(WorldObject(current_x, GROUND_Y, world_width - current_x, HEIGHT - GROUND_Y))
+        return segments
+
+    def build_prototype_layout(self) -> PhaseLayout:
+        world_width = 2600
+        holes: list[WorldObject] = []
+        return PhaseLayout(
+            name="Protótipo",
+            world_width=world_width,
+            player_start_x=80,
+            obstacles=[
+                WorldObject(526, GROUND_Y - 24, 48, 24),
+                WorldObject(1056, GROUND_Y - 24, 48, 24),
+                WorldObject(1711, GROUND_Y - 24, 48, 24),
+            ],
+            portals=[
+                WorldObject(760, GROUND_Y - 92, 44, 92),
+                WorldObject(1380, GROUND_Y - 92, 44, 92),
+                WorldObject(2050, GROUND_Y - 92, 44, 92),
+            ],
+            platforms=[],
+            holes=holes,
+            ground_segments=self.make_ground_segments(world_width, []),
+            castle=WorldObject(2380, GROUND_Y - 220, 200, 220),
+        )
+
+    def build_phase_1_layout(self) -> PhaseLayout:
+        world_width = 3100
+        hole_ranges = [(520, 700), (1230, 1395), (2010, 2180)]
+        holes = [WorldObject(start, GROUND_Y, end - start, HEIGHT - GROUND_Y) for start, end in hole_ranges]
+        return PhaseLayout(
+            name="Fase 1",
+            world_width=world_width,
+            player_start_x=70,
+            obstacles=[
+                WorldObject(420, GROUND_Y - 24, 48, 24),
+                WorldObject(930, GROUND_Y - 144, 48, 24),
+                WorldObject(1590, GROUND_Y - 24, 48, 24),
+                WorldObject(1885, GROUND_Y - 114, 48, 24),
+                WorldObject(2460, GROUND_Y - 24, 48, 24),
+            ],
+            portals=[
+                WorldObject(320, GROUND_Y - 92, 44, 92),
+                WorldObject(865, GROUND_Y - 182, 44, 92),
+                WorldObject(1480, GROUND_Y - 152, 44, 92),
+                WorldObject(2140, GROUND_Y - 92, 44, 92),
+                WorldObject(2660, GROUND_Y - 212, 44, 92),
+            ],
+            platforms=[
+                WorldObject(760, GROUND_Y - 96, 220, 16),
+                WorldObject(1120, GROUND_Y - 66, 180, 16),
+                WorldObject(1430, GROUND_Y - 126, 220, 16),
+                WorldObject(1780, GROUND_Y - 96, 180, 16),
+                WorldObject(2310, GROUND_Y - 126, 220, 16),
+                WorldObject(2580, GROUND_Y - 186, 200, 16),
+            ],
+            holes=holes,
+            ground_segments=self.make_ground_segments(world_width, hole_ranges),
+            castle=WorldObject(2890, GROUND_Y - 220, 200, 220),
+        )
+
+    def reset_phase(self) -> None:
+        self.player = Player(self.active_layout.player_start_x, GROUND_Y)
+        self.obstacles = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.obstacles]
+        self.portals = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.portals]
+        self.platforms = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.platforms]
+        self.holes = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.holes]
+        self.ground_segments = [
+            WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.ground_segments
         ]
         self.triggered_portals: set[int] = set()
-        self.castle = WorldObject(2380, GROUND_Y - 220, 200, 220)
+        self.castle = WorldObject(
+            self.active_layout.castle.rect.x,
+            self.active_layout.castle.rect.y,
+            self.active_layout.castle.rect.width,
+            self.active_layout.castle.rect.height,
+        )
+        self.world_width = self.active_layout.world_width
         self.lives = 3
         self.coins = 0
         self.streak = 0
         self.has_shield = False
+        self.invulnerable_until = 0.0
         self.state = GameState.PLAYING
         self.current_question: Question | None = None
         self.question_started = 0.0
         self.feedback_text = ""
         self.feedback_until = 0.0
+        self.feedback_returns_to_playing = True
         self.last_safe_x = self.player.x
         self.animation_time = 0.0
         self.player_facing = 1
+
+    def show_main_menu(self) -> None:
+        self.state = GameState.MENU
+        self.feedback_text = ""
+        self.feedback_until = 0.0
+        self.feedback_returns_to_playing = True
+        self.current_question = None
+
+    def start_phase(self, phase: PhaseId) -> None:
+        self.current_phase = phase
+        if phase == PhaseId.PHASE_1:
+            self.active_layout = self.build_phase_1_layout()
+        else:
+            self.active_layout = self.build_prototype_layout()
+        self.reset_phase()
 
     def answer_index(self, actions: set[Action]) -> int | None:
         mapping = [Action.ANSWER_1, Action.ANSWER_2, Action.ANSWER_3, Action.ANSWER_4]
@@ -150,15 +265,27 @@ class Game:
         self.feedback_until = time.monotonic() + 2.4
         self.state = GameState.FEEDBACK
 
-    def damage(self) -> None:
+    def on_hazard(self, _cause: str) -> None:
+        now = time.monotonic()
+        if now < self.invulnerable_until:
+            return
+
         if self.has_shield:
             self.has_shield = False
-            self.feedback_text = "O escudo protegeu você!"
+            self.invulnerable_until = now + SHIELD_INVULNERABILITY_SECONDS
+            self.feedback_text = "Escudo ativado! Sem dano por 3s."
         else:
             self.lives -= 1
             self.feedback_text = "Cuidado! Você perdeu uma vida."
         self.feedback_until = time.monotonic() + 1.5
-        self.player.x = max(30, self.last_safe_x - 120)
+        self.feedback_returns_to_playing = self.lives > 0
+        # ``last_safe_x`` is recorded only while the player is standing on
+        # solid ground, so falling into a pit can never create a checkpoint
+        # in mid-air above that same pit.
+        self.player.x = self.last_safe_x
+        self.player.y = float(GROUND_Y - self.player.HEIGHT)
+        self.player.vy = 0.0
+        self.player.on_ground = True
         if self.lives <= 0:
             self.state = GameState.GAME_OVER
         else:
@@ -171,9 +298,16 @@ class Game:
 
         self.animation_time += dt
 
+        if self.state == GameState.MENU:
+            if Action.ANSWER_1 in actions:
+                self.start_phase(PhaseId.PROTOTYPE)
+            elif Action.ANSWER_2 in actions:
+                self.start_phase(PhaseId.PHASE_1)
+            return
+
         if self.state in (GameState.GAME_OVER, GameState.VICTORY):
             if Action.RESTART in actions:
-                self.reset()
+                self.show_main_menu()
             return
 
         if self.state == GameState.QUESTION:
@@ -184,19 +318,34 @@ class Game:
 
         if self.state == GameState.FEEDBACK:
             if time.monotonic() >= self.feedback_until:
-                self.state = GameState.PLAYING
+                if self.feedback_returns_to_playing:
+                    self.state = GameState.PLAYING
             return
 
         direction = int(Action.MOVE_RIGHT in actions) - int(Action.MOVE_LEFT in actions)
         if direction:
             self.player_facing = 1 if direction > 0 else -1
-        self.player.update(dt, direction, Action.JUMP in actions, WORLD_WIDTH)
+        solids = [obj.rect for obj in self.ground_segments] + [obj.rect for obj in self.platforms]
+        self.player.update(dt, direction, Action.JUMP in actions, self.world_width, solids)
 
-        if not any(self.player.rect.colliderect(obj.rect) for obj in self.obstacles):
-            self.last_safe_x = self.player.x
-        else:
-            self.damage()
+        fell_in_hole = self.player.y > HEIGHT + 40
+        if fell_in_hole:
+            self.on_hazard("hole")
             return
+
+        if any(self.player.rect.colliderect(obj.rect) for obj in self.obstacles):
+            self.on_hazard("spike")
+            return
+
+        # Platforms are useful for traversal, but ground-level checkpoints
+        # make respawns predictable and guarantee support under the player.
+        if self.player.on_ground and any(
+            self.player.rect.bottom == segment.rect.top
+            and self.player.rect.left >= segment.rect.left
+            and self.player.rect.right <= segment.rect.right
+            for segment in self.ground_segments
+        ):
+            self.last_safe_x = self.player.x
 
         for index, portal in enumerate(self.portals):
             if index not in self.triggered_portals and self.player.rect.colliderect(portal.rect):
@@ -213,7 +362,7 @@ class Game:
                 progress=progress,
                 lives=self.lives,
                 coins=self.coins,
-                feedback="shield" if self.has_shield else "neutral",
+                feedback="shield" if self.has_shield or time.monotonic() < self.invulnerable_until else "neutral",
             )
         )
 
@@ -299,7 +448,7 @@ class Game:
             )
 
         # Árvores e arbustos acompanham uma camada mais próxima do jogador.
-        for world_x in range(180, WORLD_WIDTH, 360):
+        for world_x in range(180, self.world_width, 360):
             x = world_x - int(camera_x * 0.72)
             if -80 <= x <= WIDTH + 80:
                 pygame.draw.rect(self.screen, (104, 72, 52), (x + 28, GROUND_Y - 82, 14, 82))
@@ -308,21 +457,43 @@ class Game:
                 pygame.draw.circle(self.screen, (79, 166, 91), (x + 58, GROUND_Y - 87), 28)
 
         ground_strip = self.sprites.get("platform_rows")
-        if isinstance(ground_strip, list) and ground_strip:
-            tile = pygame.transform.scale(ground_strip[0], (64, 16))
-            start_x = -int(camera_x) % 64 - 64
-            for x in range(start_x, WIDTH + 64, 64):
-                self.screen.blit(tile, (x, GROUND_Y))
-        else:
-            pygame.draw.rect(self.screen, (92, 159, 87), (0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y))
-        pygame.draw.rect(self.screen, (84, 124, 73), (0, GROUND_Y + 16, WIDTH, HEIGHT - GROUND_Y - 16))
+        for segment in self.ground_segments:
+            seg = segment.rect.move(-camera_x, 0)
+            if seg.right < -GROUND_TILE_WIDTH or seg.left > WIDTH + GROUND_TILE_WIDTH:
+                continue
+            if isinstance(ground_strip, list) and ground_strip:
+                tile = pygame.transform.scale(ground_strip[0], (GROUND_TILE_WIDTH, 16))
+                # Anchor tiles in world coordinates. Only the camera offset is
+                # subtracted, preventing the texture from sliding over the
+                # ground geometry as the camera follows the player.
+                first_world_tile = (segment.rect.left // GROUND_TILE_WIDTH) * GROUND_TILE_WIDTH
+                previous_clip = self.screen.get_clip()
+                self.screen.set_clip(seg.clip(self.screen.get_rect()))
+                for world_x in range(first_world_tile, segment.rect.right, GROUND_TILE_WIDTH):
+                    self.screen.blit(tile, (world_x - int(camera_x), GROUND_Y))
+                self.screen.set_clip(previous_clip)
+            else:
+                pygame.draw.rect(self.screen, (92, 159, 87), seg)
+            pygame.draw.rect(self.screen, (84, 124, 73), (seg.x, GROUND_Y + 16, seg.width, HEIGHT - GROUND_Y - 16))
 
-        for world_x in range(90, WORLD_WIDTH, 150):
+        for hole in self.holes:
+            pit = hole.rect.move(-camera_x, 0)
+            if pit.right < 0 or pit.left > WIDTH:
+                continue
+            pygame.draw.rect(self.screen, (27, 34, 46), pit)
+            pygame.draw.ellipse(self.screen, (10, 16, 22), pit.inflate(0, -36), width=4)
+
+        for world_x in range(90, self.world_width, 150):
             x = world_x - int(camera_x)
             if -10 <= x <= WIDTH + 10:
                 pygame.draw.line(self.screen, (47, 116, 57), (x, GROUND_Y), (x, GROUND_Y - 13), 2)
                 pygame.draw.circle(self.screen, (255, 216, 77), (x - 3, GROUND_Y - 14), 3)
                 pygame.draw.circle(self.screen, (255, 245, 180), (x + 3, GROUND_Y - 14), 3)
+
+    def draw_platform(self, rect: pygame.Rect) -> None:
+        pygame.draw.rect(self.screen, (100, 143, 94), rect, border_radius=4)
+        pygame.draw.rect(self.screen, (74, 111, 69), (rect.x, rect.y + rect.height - 4, rect.width, 4), border_radius=2)
+        pygame.draw.rect(self.screen, (188, 224, 180), (rect.x + 6, rect.y + 2, max(4, rect.width - 12), 3), border_radius=2)
 
     def draw_obstacle(self, rect: pygame.Rect) -> None:
         visual_rect = pygame.Rect(0, 0, *SPIKE_VISUAL_SIZE)
@@ -436,7 +607,7 @@ class Game:
             pygame.draw.ellipse(self.screen, (92, 180, 255), visual_rect.inflate(22, 14), width=2)
 
     def draw_hud(self) -> None:
-        panel = pygame.Rect(16, 16, 430, 68)
+        panel = pygame.Rect(16, 16, 520, 84)
         pygame.draw.rect(self.screen, (18, 18, 22), panel, border_radius=12)
         pygame.draw.rect(self.screen, (255, 68, 68), panel, width=2, border_radius=12)
         self.draw_text("Vidas", 58, 31, self.small_font, color=(255, 170, 170))
@@ -449,17 +620,54 @@ class Game:
         self.draw_text("Sequência", 215, 31, self.small_font, color=(255, 170, 170))
         self.draw_text(f"{self.streak}", 215, 50, self.small_font, color=(255, 255, 255))
         self.draw_text("Escudo", 318, 31, self.small_font, color=(255, 170, 170))
-        self.draw_text("sim" if self.has_shield else "não", 318, 50, self.small_font, color=(255, 255, 255))
+        shield_status = "sim" if self.has_shield else "não"
+        self.draw_text(shield_status, 318, 50, self.small_font, color=(255, 255, 255))
+
+        invulnerable_left = max(0.0, self.invulnerable_until - time.monotonic())
+        inv_text = f"Invuln.: {invulnerable_left:.1f}s" if invulnerable_left > 0 else "Invuln.: 0.0s"
+        self.draw_text(inv_text, 404, 50, self.small_font, color=(187, 224, 255))
+        self.draw_text(self.active_layout.name, 28, 73, self.small_font, color=(255, 190, 190))
 
         progress = min(1.0, self.player.x / self.castle.rect.x)
-        bar_bg = pygame.Rect(490, 24, 250, 18)
+        bar_bg = pygame.Rect(560, 24, 250, 18)
         pygame.draw.rect(self.screen, (18, 18, 22), bar_bg, border_radius=8)
-        pygame.draw.rect(self.screen, (255, 68, 68), (493, 27, int(244 * progress), 12), border_radius=6)
-        self.draw_text("Progresso", 615, 48, self.small_font, center=True, color=(255, 240, 240))
+        pygame.draw.rect(self.screen, (255, 68, 68), (563, 27, int(244 * progress), 12), border_radius=6)
+        self.draw_text("Progresso", 685, 48, self.small_font, center=True, color=(255, 240, 240))
+
+    def draw_main_menu(self) -> None:
+        self.draw_background(0)
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((8, 8, 14, 165))
+        self.screen.blit(overlay, (0, 0))
+
+        panel = pygame.Rect(130, 96, 700, 350)
+        pygame.draw.rect(self.screen, (20, 20, 24), panel, border_radius=24)
+        pygame.draw.rect(self.screen, (255, 68, 68), panel, width=3, border_radius=24)
+        self.draw_text("Fuja para o Castelo", WIDTH // 2, 148, self.large_font, center=True, color=(255, 245, 245))
+        self.draw_text("Escolha uma fase", WIDTH // 2, 188, self.font, center=True, color=(255, 190, 190))
+
+        option_1 = pygame.Rect(184, 230, 592, 62)
+        option_2 = pygame.Rect(184, 307, 592, 92)
+        pygame.draw.rect(self.screen, (32, 32, 38), option_1, border_radius=12)
+        pygame.draw.rect(self.screen, (255, 68, 68), option_1, width=2, border_radius=12)
+        pygame.draw.rect(self.screen, (32, 32, 38), option_2, border_radius=12)
+        pygame.draw.rect(self.screen, (255, 68, 68), option_2, width=2, border_radius=12)
+        self.draw_text("1. Protótipo (fase original)", option_1.x + 22, option_1.y + 18, self.small_font, color=(240, 240, 240))
+        self.draw_text("2. Fase 1 (buracos, desníveis e 5 perguntas)", option_2.x + 22, option_2.y + 19, self.small_font, color=(240, 240, 240))
+        self.draw_text("Use 1 ou 2 para iniciar", option_2.x + 22, option_2.y + 52, self.small_font, color=(255, 190, 190))
 
     def draw(self) -> None:
-        camera_x = max(0, min(self.player.x - WIDTH * 0.35, WORLD_WIDTH - WIDTH))
+        if self.state == GameState.MENU:
+            self.draw_main_menu()
+            pygame.display.flip()
+            return
+
+        camera_x = max(0, min(self.player.x - WIDTH * 0.35, self.world_width - WIDTH))
         self.draw_background(camera_x)
+
+        for platform in self.platforms:
+            platform_anchor = platform.rect.move(-camera_x, 0)
+            self.draw_platform(platform_anchor)
 
         # Os retângulos abaixo servem apenas para posicionar os sprites. As
         # hitboxes permanecem na lógica de update e nunca são desenhadas.
@@ -475,7 +683,8 @@ class Game:
         self.draw_castle(castle_anchor)
 
         player_anchor = self.player.rect.move(-camera_x, 0)
-        self.draw_player(player_anchor, self.has_shield)
+        shield_visible = self.has_shield or (time.monotonic() < self.invulnerable_until)
+        self.draw_player(player_anchor, shield_visible)
         self.draw_hud()
 
         if self.state == GameState.QUESTION and self.current_question:
@@ -486,7 +695,7 @@ class Game:
             pygame.draw.rect(self.screen, (255, 68, 68), panel, width=2, border_radius=18)
             self.draw_wrapped(self.feedback_text, panel.inflate(-40, -40), self.font, color=(255, 246, 246))
         elif self.state == GameState.GAME_OVER:
-            self.draw_end_screen("Fim de jogo", "Pressione R para tentar novamente")
+            self.draw_end_screen("Fim de jogo", "Pressione R para voltar ao menu")
         elif self.state == GameState.VICTORY:
             self.draw_end_screen("Você chegou ao castelo!", f"Moedas conquistadas: {self.coins} - Pressione R")
 

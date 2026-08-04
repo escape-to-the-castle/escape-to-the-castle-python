@@ -23,7 +23,7 @@ class Player:
     def rect(self) -> pygame.Rect:
         return pygame.Rect(round(self.x), round(self.y), self.WIDTH, self.HEIGHT)
 
-    def update(self, dt: float, direction: int, jump: bool, world_width: int) -> None:
+    def update(self, dt: float, direction: int, jump: bool, world_width: int, solids: list[pygame.Rect]) -> None:
         self.x += direction * self.SPEED * dt
         self.x = max(0, min(self.x, world_width - self.WIDTH))
 
@@ -31,13 +31,29 @@ class Player:
             self.vy = self.JUMP_SPEED
             self.on_ground = False
 
+        previous_bottom = self.y + self.HEIGHT
         self.vy += self.GRAVITY * dt
         self.y += self.vy * dt
-        floor = self.ground_y - self.HEIGHT
-        if self.y >= floor:
-            self.y = float(floor)
-            self.vy = 0.0
-            self.on_ground = True
+        self.on_ground = False
+
+        if self.vy >= 0.0:
+            player_rect = self.rect
+            landing_y: float | None = None
+            for solid in solids:
+                if player_rect.right <= solid.left or player_rect.left >= solid.right:
+                    continue
+                if previous_bottom > solid.top + 8:
+                    continue
+                if player_rect.bottom < solid.top:
+                    continue
+                candidate = float(solid.top - self.HEIGHT)
+                if landing_y is None or candidate < landing_y:
+                    landing_y = candidate
+
+            if landing_y is not None:
+                self.y = landing_y
+                self.vy = 0.0
+                self.on_ground = True
 
 
 class WorldObject:
