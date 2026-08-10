@@ -17,15 +17,18 @@ from .game.config import (
     HIT_ANIMATION_SECONDS,
     PLAYER_ROLL_DURATION_SECONDS,
     PLAYER_SPRITE_SIZE,
+    PLAYER_SPEED,
+    PLAYER_SPEED_BOOST_MULTIPLIER,
+    PLAYER_SPEED_BOOST_SECONDS,
     SCREEN_HEIGHT as HEIGHT,
     SCREEN_WIDTH as WIDTH,
     SHIELD_INVULNERABILITY_SECONDS,
     SPIKE_VISUAL_SIZE,
 )
-from .game.entities import Player, WorldObject
+from .game.entities import MovingObstacle, Player, WorldObject
 from .game.levels import PhaseId, build_layout
 from .hardware.interface import Action, OutputState
-from .hardware.keyboard import KeyboardHardware
+from .hardware.factory import create_hardware
 from .monitoring.performance import PerformanceMonitor
 
 
@@ -33,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class GameState(Enum):
+    INTRO = auto()
     MENU = auto()
     PLAYING = auto()
     QUESTION = auto()
@@ -45,7 +49,7 @@ class GameState(Enum):
 class Game:
     def __init__(self) -> None:
         pygame.init()
-        pygame.display.set_caption("Fuja para o Castelo - Protótipo")
+        pygame.display.set_caption("Fuja para o Castelo")
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 34)
@@ -54,17 +58,22 @@ class Game:
         self.sprites = load_brackeys_sprites(ROOT)
         self.platform_strip_cache: dict[tuple[int, int], pygame.Surface] = {}
         self.hardware = KeyboardHardware()
+        self.hardware = create_hardware()
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")
         self.monitor = PerformanceMonitor()
         self.running = True
         self.current_phase = PhaseId.PROTOTYPE
         self.active_layout = build_layout(self.current_phase)
         self.start_phase(self.current_phase)
-        self.show_main_menu()
+        self.show_intro()
 
     def reset_phase(self) -> None:
         self.player = Player(self.active_layout.player_start_x, GROUND_Y)
         self.obstacles = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.obstacles]
+        self.moving_obstacles = [
+            MovingObstacle(spec.x, spec.y, spec.width, spec.height, spec.min_x, spec.max_x, spec.speed)
+            for spec in self.active_layout.moving_obstacles
+        ]
         self.portals = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.portals]
         self.platforms = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.platforms]
         self.holes = [WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.holes]
@@ -72,6 +81,7 @@ class Game:
             WorldObject(obj.rect.x, obj.rect.y, obj.rect.width, obj.rect.height) for obj in self.active_layout.ground_segments
         ]
         self.triggered_portals: set[int] = set()
+        self.active_portal_index: int | None = None
         self.castle = WorldObject(
             self.active_layout.castle.rect.x,
             self.active_layout.castle.rect.y,
@@ -88,6 +98,7 @@ class Game:
         self.damage_flash_until = 0.0
         self.hit_animation_started: float | None = None
         self.death_animation_started: float | None = None
+        self.speed_boost_until = 0.0
         self.state = GameState.PLAYING
         self.current_question: Question | None = None
         self.question_started = 0.0
@@ -97,6 +108,9 @@ class Game:
         self.last_safe_x = self.player.x
         self.player_facing = 1
         self.player_moving = False
+
+    def show_intro(self) -> None:
+        self.state = GameState.INTRO
 
     def show_main_menu(self) -> None:
         self.state = GameState.MENU
@@ -108,6 +122,7 @@ class Game:
     def start_phase(self, phase: PhaseId) -> None:
         self.current_phase = phase
         self.active_layout = build_layout(phase)
+        self.question_bank.reset_round()
         self.reset_phase()
 
     def answer_index(self, actions: set[Action]) -> int | None:
@@ -122,9 +137,21 @@ class Game:
         self.question_started = time.monotonic()
         self.state = GameState.QUESTION
 
+    def update_hardware_outputs(self, feedback: str | None = None) -> None:
+        self.hardware.update_outputs(
+            OutputState(
+                progress=min(1.0, self.player.x / self.castle.rect.x),
+                lives=self.lives,
+                coins=self.coins,
+                feedback=feedback
+                or ("shield" if self.has_shield else "neutral"),
+            )
+        )
+
     def resolve_answer(self, selected: int) -> None:
         assert self.current_question is not None
-        elapsed = time.monotonic() - self.question_started
+        now = time.monotonic()
+        elapsed = now - self.question_started
         if selected == self.current_question.correct_index:
             bonus = 5 if elapsed <= 5.0 else 0
             self.coins += 10 + bonus
@@ -133,13 +160,20 @@ class Game:
                 self.has_shield = True
             if self.streak == 5:
                 self.lives += 1
-            extra = " + bônus de rapidez!" if bonus else ""
+            if bonus:
+                # O tempo da tela de feedback não consome o bônus jogável.
+                self.speed_boost_until = now + 2.4 + PLAYER_SPEED_BOOST_SECONDS
+            extra = f" + velocidade {PLAYER_SPEED_BOOST_MULTIPLIER:.2g}x!" if bonus else ""
             self.feedback_text = f"Correto! +{10 + bonus} moedas{extra}"
         else:
             self.streak = 0
             self.feedback_text = f"Quase! {self.current_question.explanation}"
+        if self.active_portal_index is not None:
+            self.triggered_portals.add(self.active_portal_index)
+            self.active_portal_index = None
         self.feedback_until = time.monotonic() + 2.4
         self.state = GameState.FEEDBACK
+        self.update_hardware_outputs("correct" if selected == self.current_question.correct_index else "error")
 
     def on_hazard(self, cause: str) -> None:
         now = self.animation_time
@@ -171,6 +205,30 @@ class Game:
         # jogador no lugar e dão tempo para que ele se afaste do obstáculo.
         if cause == "hole":
             self.player.respawn(self.last_safe_x, GROUND_Y)
+            shield_absorbed_hazard = True
+        else:
+            self.lives -= 1
+            self.feedback_text = "Cuidado! Você perdeu uma vida."
+            shield_absorbed_hazard = False
+        # ``last_safe_x`` is recorded only while the player is standing on
+        # solid ground, so falling into a pit can never create a checkpoint
+        # in mid-air above that same pit.
+        self.player.x = self.last_safe_x
+        self.player.y = float(GROUND_Y - self.player.HEIGHT)
+        self.player.vy = 0.0
+        self.player.on_ground = True
+        if shield_absorbed_hazard:
+            self.feedback_text = ""
+            self.feedback_until = 0.0
+            self.feedback_returns_to_playing = True
+            self.state = GameState.PLAYING
+        elif self.lives <= 0:
+            self.state = GameState.GAME_OVER
+        else:
+            self.feedback_until = time.monotonic() + 1.5
+            self.feedback_returns_to_playing = True
+            self.state = GameState.FEEDBACK
+        self.update_hardware_outputs("neutral" if shield_absorbed_hazard else "error")
 
     def update(self, dt: float, actions: set[Action]) -> None:
         if Action.QUIT in actions:
@@ -179,11 +237,18 @@ class Game:
 
         self.animation_time += dt
 
+        if self.state == GameState.INTRO:
+            if actions - {Action.QUIT}:
+                self.show_main_menu()
+            return
+
         if self.state == GameState.MENU:
             if Action.ANSWER_1 in actions:
                 self.start_phase(PhaseId.PROTOTYPE)
             elif Action.ANSWER_2 in actions:
                 self.start_phase(PhaseId.PHASE_1)
+            elif Action.ANSWER_3 in actions:
+                self.start_phase(PhaseId.PHASE_2)
             return
 
         if self.state in (GameState.GAME_OVER, GameState.VICTORY):
@@ -211,6 +276,9 @@ class Game:
                     self.state = GameState.PLAYING
             return
 
+        speed_boost_active = time.monotonic() < self.speed_boost_until
+        self.player.speed = PLAYER_SPEED * (PLAYER_SPEED_BOOST_MULTIPLIER if speed_boost_active else 1.0)
+
         direction = int(Action.MOVE_RIGHT in actions) - int(Action.MOVE_LEFT in actions)
         if direction:
             self.player_facing = 1 if direction > 0 else -1
@@ -225,13 +293,16 @@ class Game:
             solids,
         )
         self.player_moving = direction != 0 and not self.player.is_rolling
+        self.player.update(dt, direction, Action.JUMP in actions, self.world_width, solids)
+        for obstacle in self.moving_obstacles:
+            obstacle.update(dt)
 
         fell_in_hole = self.player.y > HEIGHT + 40
         if fell_in_hole:
             self.on_hazard("hole")
             return
 
-        if any(self.player.rect.colliderect(obj.rect) for obj in self.obstacles):
+        if any(self.player.rect.colliderect(obj.rect) for obj in [*self.obstacles, *self.moving_obstacles]):
             self.on_hazard("spike")
             return
 
@@ -246,8 +317,12 @@ class Game:
             self.last_safe_x = self.player.x
 
         for index, portal in enumerate(self.portals):
-            if index not in self.triggered_portals and self.player.rect.colliderect(portal.rect):
-                self.triggered_portals.add(index)
+            if (
+                index not in self.triggered_portals
+                and self.player.on_ground
+                and self.player.rect.colliderect(portal.rect)
+            ):
+                self.active_portal_index = index
                 self.start_question()
                 return
 
@@ -271,6 +346,7 @@ class Game:
                 ),
             )
         )
+        self.update_hardware_outputs()
 
     def draw_text(
         self,
@@ -384,7 +460,6 @@ class Game:
             if pit.right < 0 or pit.left > WIDTH:
                 continue
             pygame.draw.rect(self.screen, (27, 34, 46), pit)
-            pygame.draw.ellipse(self.screen, (10, 16, 22), pit.inflate(0, -36), width=4)
 
         for world_x in range(90, self.world_width, 150):
             x = world_x - int(camera_x)
@@ -439,21 +514,20 @@ class Game:
             pygame.draw.line(self.screen, (74, 78, 88), points[1], points[2], 2)
 
     def draw_portal(self, rect: pygame.Rect, triggered: bool) -> None:
-        color = (130, 130, 130) if triggered else (82, 47, 190)
-        pygame.draw.ellipse(self.screen, color, rect, width=4)
-        pygame.draw.ellipse(self.screen, (255, 255, 255), rect.inflate(-10, -10), width=2)
+        if triggered:
+            return
         coin_frames = self.sprites.get("coins")
         if isinstance(coin_frames, list) and coin_frames:
             frame = coin_frames[int(self.animation_time * 12) % len(coin_frames)]
-            coin_rect = frame.get_rect(center=rect.center)
-            self.screen.blit(frame, coin_rect)
+            coin = pygame.transform.scale(frame, (30, 30))
+            self.screen.blit(coin, coin.get_rect(center=rect.center))
         elif self.sprites.get("fruit"):
             fruit = self.sprites["fruit"]
             assert isinstance(fruit, pygame.Surface)
             fruit_rect = fruit.get_rect(center=rect.center)
             self.screen.blit(fruit, fruit_rect)
         else:
-            pygame.draw.circle(self.screen, (255, 68, 68) if not triggered else (180, 180, 180), rect.center, 6)
+            pygame.draw.circle(self.screen, (255, 216, 77), rect.center, rect.width // 2)
 
     def draw_castle(self, rect: pygame.Rect) -> None:
         stone = (116, 120, 132)
@@ -560,7 +634,7 @@ class Game:
             pygame.draw.ellipse(self.screen, (92, 180, 255), visual_rect.inflate(22, 14), width=2)
 
     def draw_hud(self) -> None:
-        panel = pygame.Rect(16, 16, 520, 84)
+        panel = pygame.Rect(16, 16, 390, 84)
         pygame.draw.rect(self.screen, (18, 18, 22), panel, border_radius=12)
         pygame.draw.rect(self.screen, (255, 68, 68), panel, width=2, border_radius=12)
         self.draw_text("Vidas", 58, 31, self.small_font, color=(255, 170, 170))
@@ -568,7 +642,8 @@ class Game:
         coin_frames = self.sprites.get("coins")
         if isinstance(coin_frames, list) and coin_frames:
             frame = coin_frames[int(self.animation_time * 12) % len(coin_frames)]
-            self.screen.blit(frame, frame.get_rect(center=(120, 40)))
+            coin = pygame.transform.scale(frame, (24, 24))
+            self.screen.blit(coin, coin.get_rect(center=(120, 40)))
         self.draw_text(f"{self.coins}", 140, 50, self.small_font, color=(255, 255, 255))
         self.draw_text("Sequência", 215, 31, self.small_font, color=(255, 170, 170))
         self.draw_text(f"{self.streak}", 215, 50, self.small_font, color=(255, 255, 255))
@@ -581,35 +656,74 @@ class Game:
         self.draw_text(inv_text, 404, 50, self.small_font, color=(187, 224, 255))
         self.draw_text(self.active_layout.name, 28, 73, self.small_font, color=(255, 190, 190))
 
-        progress = min(1.0, self.player.x / self.castle.rect.x)
-        bar_bg = pygame.Rect(560, 24, 250, 18)
-        pygame.draw.rect(self.screen, (18, 18, 22), bar_bg, border_radius=8)
-        pygame.draw.rect(self.screen, (255, 68, 68), (563, 27, int(244 * progress), 12), border_radius=6)
-        self.draw_text("Progresso", 685, 48, self.small_font, center=True, color=(255, 240, 240))
-
     def draw_main_menu(self) -> None:
         self.draw_background(0)
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((8, 8, 14, 165))
+        overlay.fill((7, 12, 24, 178))
         self.screen.blit(overlay, (0, 0))
 
-        panel = pygame.Rect(130, 96, 700, 350)
-        pygame.draw.rect(self.screen, (20, 20, 24), panel, border_radius=24)
-        pygame.draw.rect(self.screen, (255, 68, 68), panel, width=3, border_radius=24)
-        self.draw_text("Fuja para o Castelo", WIDTH // 2, 148, self.large_font, center=True, color=(255, 245, 245))
-        self.draw_text("Escolha uma fase", WIDTH // 2, 188, self.font, center=True, color=(255, 190, 190))
+        self.draw_text("SELECIONE SUA JORNADA", WIDTH // 2, 70, self.large_font, center=True, color=(255, 248, 248))
+        self.draw_text("Cada caminho leva a um novo desafio", WIDTH // 2, 122, self.small_font, center=True, color=(184, 205, 232))
 
-        option_1 = pygame.Rect(184, 230, 592, 62)
-        option_2 = pygame.Rect(184, 307, 592, 92)
-        pygame.draw.rect(self.screen, (32, 32, 38), option_1, border_radius=12)
-        pygame.draw.rect(self.screen, (255, 68, 68), option_1, width=2, border_radius=12)
-        pygame.draw.rect(self.screen, (32, 32, 38), option_2, border_radius=12)
-        pygame.draw.rect(self.screen, (255, 68, 68), option_2, width=2, border_radius=12)
-        self.draw_text("1. Protótipo (fase original)", option_1.x + 22, option_1.y + 18, self.small_font, color=(240, 240, 240))
-        self.draw_text("2. Fase 1 (buracos, desníveis e 5 perguntas)", option_2.x + 22, option_2.y + 19, self.small_font, color=(240, 240, 240))
-        self.draw_text("Use 1 ou 2 para iniciar", option_2.x + 22, option_2.y + 52, self.small_font, color=(255, 190, 190))
+        cards = (
+            (pygame.Rect(65, 170, 250, 225), "1", "PROTÓTIPO", "A aventura original", (94, 170, 255)),
+            (pygame.Rect(355, 170, 250, 225), "2", "FASE 1", "Saltos e desníveis", (255, 173, 72)),
+            (pygame.Rect(645, 170, 250, 225), "3", "FASE 2", "O desafio completo", (255, 75, 82)),
+        )
+        for card, key, title, description, accent in cards:
+            shadow = card.move(0, 8)
+            pygame.draw.rect(self.screen, (5, 8, 16), shadow, border_radius=20)
+            pygame.draw.rect(self.screen, (20, 27, 42), card, border_radius=20)
+            pygame.draw.rect(self.screen, accent, card, width=2, border_radius=20)
+            pygame.draw.rect(self.screen, accent, (card.x, card.y, card.width, 7), border_radius=4)
+
+            badge = pygame.Rect(card.x + 20, card.y + 27, 46, 46)
+            pygame.draw.rect(self.screen, accent, badge, border_radius=12)
+            self.draw_text(key, badge.centerx, badge.centery, self.font, center=True, color=(12, 16, 25))
+            self.draw_text(title, card.x + 20, card.y + 93, self.font, color=(250, 250, 252))
+            self.draw_text(description, card.x + 20, card.y + 137, self.small_font, color=(184, 197, 216))
+
+        self.draw_text("PRESSIONE 1, 2 OU 3 PARA COMEÇAR", WIDTH // 2, 464, self.small_font, center=True, color=(218, 226, 239))
+
+    def draw_intro(self) -> None:
+        self.draw_background(0)
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((7, 12, 24, 184))
+        self.screen.blit(overlay, (0, 0))
+
+        emblem = pygame.Rect(0, 0, 112, 112)
+        emblem.center = (WIDTH // 2, 155)
+        pygame.draw.rect(self.screen, (18, 24, 38), emblem, border_radius=26)
+        pygame.draw.rect(self.screen, (255, 75, 82), emblem, width=3, border_radius=26)
+        castle_color = (236, 240, 248)
+        castle_body = pygame.Rect(emblem.x + 31, emblem.y + 46, 50, 43)
+        left_tower = pygame.Rect(emblem.x + 20, emblem.y + 35, 25, 54)
+        right_tower = pygame.Rect(emblem.right - 45, emblem.y + 35, 25, 54)
+        pygame.draw.rect(self.screen, castle_color, castle_body)
+        pygame.draw.rect(self.screen, castle_color, left_tower)
+        pygame.draw.rect(self.screen, castle_color, right_tower)
+        for tower in (left_tower, right_tower):
+            for x in (tower.x, tower.x + 10, tower.right - 5):
+                pygame.draw.rect(self.screen, castle_color, (x, tower.y - 8, 6, 12))
+        pygame.draw.rect(self.screen, (18, 24, 38), (emblem.centerx - 8, emblem.bottom - 39, 16, 31), border_radius=8)
+        pygame.draw.rect(self.screen, (255, 75, 82), (emblem.centerx - 2, emblem.y + 19, 4, 22))
+        pygame.draw.polygon(self.screen, (255, 75, 82), [(emblem.centerx + 2, emblem.y + 19), (emblem.centerx + 21, emblem.y + 25), (emblem.centerx + 2, emblem.y + 31)])
+
+        self.draw_text("FUJA PARA O CASTELO", WIDTH // 2, 250, self.large_font, center=True, color=(255, 248, 248))
+        self.draw_text("Uma aventura de conhecimento", WIDTH // 2, 304, self.font, center=True, color=(184, 205, 232))
+
+        if int(time.monotonic() * 2) % 2 == 0:
+            prompt = pygame.Rect(270, 370, 420, 58)
+            pygame.draw.rect(self.screen, (24, 31, 47), prompt, border_radius=14)
+            pygame.draw.rect(self.screen, (255, 75, 82), prompt, width=2, border_radius=14)
+            self.draw_text("PRESSIONE QUALQUER TECLA PARA JOGAR", WIDTH // 2, 387, self.small_font, center=True, color=(255, 235, 235))
 
     def draw(self) -> None:
+        if self.state == GameState.INTRO:
+            self.draw_intro()
+            pygame.display.flip()
+            return
+
         if self.state == GameState.MENU:
             self.draw_main_menu()
             pygame.display.flip()
@@ -628,6 +742,10 @@ class Game:
             obstacle_anchor = obj.rect.move(-camera_x, 0)
             self.draw_obstacle(obstacle_anchor)
 
+        for obj in self.moving_obstacles:
+            obstacle_anchor = obj.rect.move(-camera_x, 0)
+            self.draw_obstacle(obstacle_anchor)
+
         for index, portal in enumerate(self.portals):
             portal_anchor = portal.rect.move(-camera_x, 0)
             self.draw_portal(portal_anchor, index in self.triggered_portals)
@@ -641,6 +759,7 @@ class Game:
             and self.animation_time >= self.damage_flash_until
         )
         self.draw_player(player_anchor, shield_visible)
+        self.draw_player(player_anchor, self.has_shield)
         self.draw_hud()
 
         if self.state == GameState.QUESTION and self.current_question:

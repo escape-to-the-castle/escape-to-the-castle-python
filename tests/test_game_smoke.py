@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
@@ -9,14 +10,18 @@ from src.game.config import DEATH_ANIMATION_SECONDS, PLAYER_HEIGHT, PLAYER_ROLL_
 from src.game.entities import Player
 from src.game.levels import (
     PHASE_1_PLATFORMS,
+    PHASE_2_PLATFORMS,
     PlatformSpec,
     build_phase_1_layout,
+    build_phase_2_layout,
     maximum_jump_rise,
     validate_platform_specs,
 )
+from src.game.config import PLAYER_SPEED, PLAYER_SPEED_BOOST_MULTIPLIER, SCREEN_HEIGHT
+from src.game.entities import Player
 from src.hardware.interface import Action
 from src.hardware.keyboard import KeyboardHardware
-from src.main import GROUND_Y, Game, GameState, PhaseId
+from src.main import GROUND_Y, Game, GameState, GameState, PhaseId
 
 
 def test_platform_strip_joins_detailed_tiles_without_stretching():
@@ -65,6 +70,7 @@ def test_air_platform_uses_the_platform_tiles():
     expected.blit(strip, (0, 0))
     actual = game.screen.subsurface(rect)
     assert pygame.image.tobytes(actual, "RGB") == pygame.image.tobytes(expected, "RGB")
+from src.hardware.interface import Action
 
 
 def test_game_initializes_and_renders():
@@ -73,7 +79,7 @@ def test_game_initializes_and_renders():
     game.draw()
 
     assert game.running is True
-    assert game.state.name in {"MENU", "PLAYING", "QUESTION", "FEEDBACK", "DYING", "GAME_OVER", "VICTORY"}
+    assert game.state.name in {"INTRO", "MENU", "PLAYING", "QUESTION", "FEEDBACK", "DYING", "GAME_OVER", "VICTORY"}
 
 
 def test_knight_animation_rows_are_loaded_without_label_cells():
@@ -172,6 +178,32 @@ def test_hole_death_skips_the_death_animation():
     assert game.death_animation_started is None
 
 
+def test_intro_accepts_any_start_action_before_opening_menu():
+    game = Game()
+    assert game.state == GameState.INTRO
+
+    game.update(1 / 60, {Action.START})
+
+    assert game.state == GameState.MENU
+
+
+def test_menu_does_not_reveal_question_counts():
+    game = Game()
+    game.show_main_menu()
+    rendered_texts: list[str] = []
+
+    original_draw_text = game.draw_text
+
+    def record_text(text, *args, **kwargs):
+        rendered_texts.append(text)
+        return original_draw_text(text, *args, **kwargs)
+
+    with patch.object(game, "draw_text", side_effect=record_text):
+        game.draw_main_menu()
+
+    assert not any("pergunta" in text.lower() for text in rendered_texts)
+
+
 def test_gameplay_phase_renders_with_all_visual_constants():
     game = Game()
     game.start_phase(PhaseId.PHASE_1)
@@ -218,3 +250,196 @@ def test_platform_validation_rejects_an_unreachable_height():
         assert "exige subida" in str(error)
     else:
         raise AssertionError("Uma plataforma inalcançável deveria ser rejeitada")
+
+
+def test_phase_2_layout_is_distinct_and_reachable():
+    validate_platform_specs(PHASE_2_PLATFORMS)
+    phase_1 = build_phase_1_layout()
+    phase_2 = build_phase_2_layout()
+
+    assert phase_2.name == "Fase 2"
+    assert phase_2.world_width > phase_1.world_width
+    assert len(phase_2.portals) == 6
+    assert len(phase_2.holes) == 4
+    assert len(phase_2.moving_obstacles) == 3
+    assert phase_2.castle.rect.right == phase_2.world_width - 10
+
+
+def test_phase_2_question_platforms_require_precise_but_possible_jumps():
+    layout = build_phase_2_layout()
+    # Pares de plataforma de aproximação e plataforma com pergunta.
+    platform_jumps = ((0, 1), (4, 5), (6, 7))
+
+    for source_index, target_index in platform_jumps:
+        source = layout.platforms[source_index]
+        target = layout.platforms[target_index]
+        player = Player(source.rect.right - Player.WIDTH, GROUND_Y)
+        player.y = float(source.rect.top - Player.HEIGHT)
+
+        for frame in range(120):
+            player.update(1 / 60, 1, frame == 0, layout.world_width, [source.rect, target.rect])
+            if player.on_ground and frame > 3:
+                break
+
+        assert player.on_ground
+        assert player.rect.bottom == target.rect.top
+        assert target.rect.width <= 150
+
+    # Nenhuma plataforma elevada com pergunta pode ser alcançada do chão.
+    for target_index in (1, 5, 7):
+        assert PHASE_2_PLATFORMS[target_index].rise > maximum_jump_rise()
+
+
+def test_elevated_question_portals_cannot_be_triggered_from_below():
+    # Portais 1, 3 e 4 ficam sobre plataformas elevadas.
+    for portal_index in (1, 3, 4):
+        game = Game()
+        game.start_phase(PhaseId.PHASE_2)
+        portal = game.portals[portal_index]
+        game.player.x = float(portal.rect.x)
+
+        for frame in range(90):
+            actions = {Action.JUMP} if frame == 0 else set()
+            game.update(1 / 60, actions)
+            assert game.state == GameState.PLAYING
+
+        assert portal.rect.bottom < min(
+            platform.rect.top
+            for platform in game.platforms
+            if platform.rect.left <= portal.rect.centerx <= platform.rect.right
+        )
+
+
+
+def test_phase_2_holes_can_be_crossed_with_the_player_physics():
+    layout = build_phase_2_layout()
+    solids = [obj.rect for obj in layout.ground_segments] + [obj.rect for obj in layout.platforms]
+
+    for hole in layout.holes:
+        player = Player(hole.rect.left - Player.WIDTH, GROUND_Y)
+        for frame in range(120):
+            player.update(1 / 60, 1, frame == 0, layout.world_width, solids)
+            if player.on_ground and frame > 0:
+                break
+            assert player.y <= SCREEN_HEIGHT + 40
+
+        assert player.on_ground
+        assert player.rect.left >= hole.rect.right
+
+
+def test_phase_2_has_a_safe_landing_area_after_every_hole():
+    layout = build_phase_2_layout()
+    minimum_landing_area = 100
+    ground_hazards = [
+        obstacle.rect.left
+        for obstacle in layout.obstacles
+        if obstacle.rect.bottom == GROUND_Y
+    ] + [
+        obstacle.min_x
+        for obstacle in layout.moving_obstacles
+        if obstacle.y + obstacle.height == GROUND_Y
+    ]
+
+    for hole in layout.holes:
+        hazards_after_hole = [x for x in ground_hazards if x >= hole.rect.right]
+        next_hazard_x = min(hazards_after_hole, default=layout.castle.rect.left)
+        assert next_hazard_x - hole.rect.right >= minimum_landing_area
+
+
+def test_menu_opens_phase_2_without_changing_existing_phases():
+    game = Game()
+    prototype_width = game.active_layout.world_width
+
+    game.update(1 / 60, {Action.START})
+    game.update(1 / 60, {Action.ANSWER_3})
+    game.update(1 / 60, set())
+    game.draw()
+
+    assert game.active_layout.name == "Fase 2"
+    assert game.player.rect.bottom == GROUND_Y
+    assert build_phase_1_layout().name == "Fase 1"
+    assert prototype_width == 2600
+
+
+def test_phase_2_obstacles_move_and_remain_inside_their_patrols():
+    game = Game()
+    game.start_phase(PhaseId.PHASE_2)
+    initial_positions = [obstacle.rect.x for obstacle in game.moving_obstacles]
+
+    for _ in range(180):
+        game.update(1 / 60, set())
+
+    assert [obstacle.rect.x for obstacle in game.moving_obstacles] != initial_positions
+    assert all(
+        obstacle.min_x <= obstacle.rect.x <= obstacle.max_x
+        for obstacle in game.moving_obstacles
+    )
+
+
+def test_fast_correct_answer_applies_and_expires_speed_boost():
+    game = Game()
+    game.start_phase(PhaseId.PHASE_2)
+    game.current_question = game.question_bank.next_question()
+    game.question_started = 100.0
+
+    with patch("src.main.time.monotonic", return_value=103.0):
+        game.resolve_answer(game.current_question.correct_index)
+
+    assert game.speed_boost_until > 103.0
+    assert "velocidade" in game.feedback_text
+
+    game.state = GameState.PLAYING
+    with patch("src.main.time.monotonic", return_value=106.0):
+        game.update(1 / 60, set())
+    assert game.player.speed == PLAYER_SPEED * PLAYER_SPEED_BOOST_MULTIPLIER
+
+    with patch("src.main.time.monotonic", return_value=game.speed_boost_until + 0.1):
+        game.update(1 / 60, set())
+    assert game.player.speed == PLAYER_SPEED
+
+
+def test_question_symbol_disappears_only_after_the_answer():
+    game = Game()
+    game.start_phase(PhaseId.PHASE_2)
+    portal = game.portals[0]
+    game.player.x = float(portal.rect.x)
+
+    game.update(1 / 60, set())
+
+    assert game.state == GameState.QUESTION
+    assert game.active_portal_index == 0
+    assert 0 not in game.triggered_portals
+
+    assert game.current_question is not None
+    game.resolve_answer(game.current_question.correct_index)
+
+    assert game.active_portal_index is None
+    assert 0 in game.triggered_portals
+
+    background = (1, 2, 3)
+    game.screen.fill(background)
+    game.draw_portal(portal.rect, triggered=True)
+    assert game.screen.get_at(portal.rect.center)[:3] == background
+
+
+def test_question_marker_uses_a_coin_sized_hitbox():
+    layout = build_phase_2_layout()
+    assert all(marker.rect.size == (24, 24) for marker in layout.portals)
+
+
+def test_losing_shield_does_not_open_feedback_modal():
+    game = Game()
+    game.start_phase(PhaseId.PHASE_2)
+    game.has_shield = True
+    lives_before_hazard = game.lives
+
+    game.on_hazard("spike")
+
+    assert game.has_shield is False
+    assert game.lives == lives_before_hazard
+    assert game.state == GameState.PLAYING
+    assert game.feedback_text == ""
+
+    with patch.object(game, "draw_player") as draw_player:
+        game.draw()
+    assert draw_player.call_args.args[1] is False
