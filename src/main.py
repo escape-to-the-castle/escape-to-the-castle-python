@@ -8,11 +8,14 @@ from pathlib import Path
 import pygame
 
 from .education.question_bank import Question, QuestionBank
-from .game.assets import load_brackeys_sprites
+from .game.assets import compose_platform_strip, load_brackeys_sprites
 from .game.config import (
+    DAMAGE_INVULNERABILITY_SECONDS,
+    DEATH_ANIMATION_SECONDS,
     FPS,
-    GROUND_TILE_WIDTH,
     GROUND_Y,
+    HIT_ANIMATION_SECONDS,
+    PLAYER_ROLL_DURATION_SECONDS,
     PLAYER_SPRITE_SIZE,
     SCREEN_HEIGHT as HEIGHT,
     SCREEN_WIDTH as WIDTH,
@@ -34,6 +37,7 @@ class GameState(Enum):
     PLAYING = auto()
     QUESTION = auto()
     FEEDBACK = auto()
+    DYING = auto()
     GAME_OVER = auto()
     VICTORY = auto()
 
@@ -48,6 +52,7 @@ class Game:
         self.small_font = pygame.font.Font(None, 26)
         self.large_font = pygame.font.Font(None, 56)
         self.sprites = load_brackeys_sprites(ROOT)
+        self.platform_strip_cache: dict[tuple[int, int], pygame.Surface] = {}
         self.hardware = KeyboardHardware()
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")
         self.monitor = PerformanceMonitor()
@@ -78,7 +83,11 @@ class Game:
         self.coins = 0
         self.streak = 0
         self.has_shield = False
+        self.animation_time = 0.0
         self.invulnerable_until = 0.0
+        self.damage_flash_until = 0.0
+        self.hit_animation_started: float | None = None
+        self.death_animation_started: float | None = None
         self.state = GameState.PLAYING
         self.current_question: Question | None = None
         self.question_started = 0.0
@@ -86,8 +95,8 @@ class Game:
         self.feedback_until = 0.0
         self.feedback_returns_to_playing = True
         self.last_safe_x = self.player.x
-        self.animation_time = 0.0
         self.player_facing = 1
+        self.player_moving = False
 
     def show_main_menu(self) -> None:
         self.state = GameState.MENU
@@ -132,31 +141,36 @@ class Game:
         self.feedback_until = time.monotonic() + 2.4
         self.state = GameState.FEEDBACK
 
-    def on_hazard(self, _cause: str) -> None:
-        now = time.monotonic()
-        if now < self.invulnerable_until:
+    def on_hazard(self, cause: str) -> None:
+        now = self.animation_time
+        if self.state in (GameState.DYING, GameState.GAME_OVER) or now < self.invulnerable_until:
             return
 
         if self.has_shield:
             self.has_shield = False
             self.invulnerable_until = now + SHIELD_INVULNERABILITY_SECONDS
-            self.feedback_text = "Escudo ativado! Sem dano por 3s."
-        else:
-            self.lives -= 1
-            self.feedback_text = "Cuidado! Você perdeu uma vida."
-        self.feedback_until = time.monotonic() + 1.5
-        self.feedback_returns_to_playing = self.lives > 0
-        # ``last_safe_x`` is recorded only while the player is standing on
-        # solid ground, so falling into a pit can never create a checkpoint
-        # in mid-air above that same pit.
-        self.player.x = self.last_safe_x
-        self.player.y = float(GROUND_Y - self.player.HEIGHT)
-        self.player.vy = 0.0
-        self.player.on_ground = True
+            if cause == "hole":
+                self.player.respawn(self.last_safe_x, GROUND_Y)
+            return
+
+        self.lives -= 1
         if self.lives <= 0:
-            self.state = GameState.GAME_OVER
-        else:
-            self.state = GameState.FEEDBACK
+            if cause == "hole":
+                self.state = GameState.GAME_OVER
+            else:
+                self.death_animation_started = now
+                self.player_moving = False
+                self.state = GameState.DYING
+            return
+
+        self.invulnerable_until = now + DAMAGE_INVULNERABILITY_SECONDS
+        self.damage_flash_until = now + DAMAGE_INVULNERABILITY_SECONDS
+        self.hit_animation_started = now
+
+        # Buracos ainda exigem reposicionamento. Outros danos mantêm o
+        # jogador no lugar e dão tempo para que ele se afaste do obstáculo.
+        if cause == "hole":
+            self.player.respawn(self.last_safe_x, GROUND_Y)
 
     def update(self, dt: float, actions: set[Action]) -> None:
         if Action.QUIT in actions:
@@ -177,6 +191,14 @@ class Game:
                 self.show_main_menu()
             return
 
+        if self.state == GameState.DYING:
+            if (
+                self.death_animation_started is not None
+                and self.animation_time - self.death_animation_started >= DEATH_ANIMATION_SECONDS
+            ):
+                self.state = GameState.GAME_OVER
+            return
+
         if self.state == GameState.QUESTION:
             selected = self.answer_index(actions)
             if selected is not None and self.current_question and selected < len(self.current_question.options):
@@ -193,7 +215,16 @@ class Game:
         if direction:
             self.player_facing = 1 if direction > 0 else -1
         solids = [obj.rect for obj in self.ground_segments] + [obj.rect for obj in self.platforms]
-        self.player.update(dt, direction, Action.JUMP in actions, self.world_width, solids)
+        self.player.update(
+            dt,
+            direction,
+            Action.JUMP in actions,
+            Action.ROLL in actions,
+            direction or self.player_facing,
+            self.world_width,
+            solids,
+        )
+        self.player_moving = direction != 0 and not self.player.is_rolling
 
         fell_in_hole = self.player.y > HEIGHT + 40
         if fell_in_hole:
@@ -229,7 +260,15 @@ class Game:
                 progress=progress,
                 lives=self.lives,
                 coins=self.coins,
-                feedback="shield" if self.has_shield or time.monotonic() < self.invulnerable_until else "neutral",
+                feedback=(
+                    "shield"
+                    if self.has_shield
+                    or (
+                        self.animation_time < self.invulnerable_until
+                        and self.animation_time >= self.damage_flash_until
+                    )
+                    else "neutral"
+                ),
             )
         )
 
@@ -323,25 +362,22 @@ class Game:
                 pygame.draw.circle(self.screen, (69, 153, 85), (x + 12, GROUND_Y - 86), 27)
                 pygame.draw.circle(self.screen, (79, 166, 91), (x + 58, GROUND_Y - 87), 28)
 
-        ground_strip = self.sprites.get("platform_rows")
         for segment in self.ground_segments:
             seg = segment.rect.move(-camera_x, 0)
-            if seg.right < -GROUND_TILE_WIDTH or seg.left > WIDTH + GROUND_TILE_WIDTH:
+            if seg.right < 0 or seg.left > WIDTH:
                 continue
-            if isinstance(ground_strip, list) and ground_strip:
-                tile = pygame.transform.scale(ground_strip[0], (GROUND_TILE_WIDTH, 16))
-                # Anchor tiles in world coordinates. Only the camera offset is
-                # subtracted, preventing the texture from sliding over the
-                # ground geometry as the camera follows the player.
-                first_world_tile = (segment.rect.left // GROUND_TILE_WIDTH) * GROUND_TILE_WIDTH
-                previous_clip = self.screen.get_clip()
-                self.screen.set_clip(seg.clip(self.screen.get_rect()))
-                for world_x in range(first_world_tile, segment.rect.right, GROUND_TILE_WIDTH):
-                    self.screen.blit(tile, (world_x - int(camera_x), GROUND_Y))
-                self.screen.set_clip(previous_clip)
+            strip = self.get_platform_strip(segment.rect.width)
+            if strip is not None:
+                self.screen.blit(strip, (seg.x, GROUND_Y))
+                ground_fill_y = GROUND_Y + strip.get_bounding_rect().bottom
             else:
                 pygame.draw.rect(self.screen, (92, 159, 87), seg)
-            pygame.draw.rect(self.screen, (84, 124, 73), (seg.x, GROUND_Y + 16, seg.width, HEIGHT - GROUND_Y - 16))
+                ground_fill_y = GROUND_Y + 16
+            pygame.draw.rect(
+                self.screen,
+                (84, 124, 73),
+                (seg.x, ground_fill_y, seg.width, HEIGHT - ground_fill_y),
+            )
 
         for hole in self.holes:
             pit = hole.rect.move(-camera_x, 0)
@@ -357,7 +393,28 @@ class Game:
                 pygame.draw.circle(self.screen, (255, 216, 77), (x - 3, GROUND_Y - 14), 3)
                 pygame.draw.circle(self.screen, (255, 245, 180), (x + 3, GROUND_Y - 14), 3)
 
+    def get_platform_strip(self, width: int, row: int = 0) -> pygame.Surface | None:
+        platform_rows = self.sprites.get("platform_rows")
+        if not isinstance(platform_rows, list) or not 0 <= row < len(platform_rows):
+            return None
+
+        tiles = platform_rows[row]
+        if not isinstance(tiles, tuple) or not tiles:
+            return None
+
+        cache_key = (row, width)
+        strip = self.platform_strip_cache.get(cache_key)
+        if strip is None:
+            strip = compose_platform_strip(tiles, width)
+            self.platform_strip_cache[cache_key] = strip
+        return strip
+
     def draw_platform(self, rect: pygame.Rect) -> None:
+        strip = self.get_platform_strip(rect.width)
+        if strip is not None:
+            self.screen.blit(strip, rect.topleft)
+            return
+
         pygame.draw.rect(self.screen, (100, 143, 94), rect, border_radius=4)
         pygame.draw.rect(self.screen, (74, 111, 69), (rect.x, rect.y + rect.height - 4, rect.width, 4), border_radius=2)
         pygame.draw.rect(self.screen, (188, 224, 180), (rect.x + 6, rect.y + 2, max(4, rect.width - 12), 3), border_radius=2)
@@ -453,16 +510,45 @@ class Game:
         idle_frames = self.sprites.get("player_idle")
         run_frames = self.sprites.get("player_run")
         jump_frame = self.sprites.get("player_jump")
+        roll_frames = self.sprites.get("player_roll")
+        hit_frames = self.sprites.get("player_hit")
+        death_frames = self.sprites.get("player_death")
         frame: pygame.Surface | None = None
-        if not self.player.on_ground and isinstance(jump_frame, pygame.Surface):
+        if (
+            self.death_animation_started is not None
+            and isinstance(death_frames, list)
+            and death_frames
+        ):
+            elapsed = max(0.0, self.animation_time - self.death_animation_started)
+            progress = min(1.0, elapsed / DEATH_ANIMATION_SECONDS)
+            frame = death_frames[min(int(progress * len(death_frames)), len(death_frames) - 1)]
+        elif (
+            self.hit_animation_started is not None
+            and self.animation_time - self.hit_animation_started < HIT_ANIMATION_SECONDS
+            and isinstance(hit_frames, list)
+            and hit_frames
+        ):
+            progress = (self.animation_time - self.hit_animation_started) / HIT_ANIMATION_SECONDS
+            frame = hit_frames[min(int(progress * len(hit_frames)), len(hit_frames) - 1)]
+        elif self.player.is_rolling and isinstance(roll_frames, list) and roll_frames:
+            elapsed = PLAYER_ROLL_DURATION_SECONDS - self.player.roll_time_left
+            frame = roll_frames[min(int(elapsed * 14), len(roll_frames) - 1)]
+        elif not self.player.on_ground and isinstance(jump_frame, pygame.Surface):
             frame = jump_frame
-        elif abs(self.player.vy) < 20 and isinstance(idle_frames, list) and idle_frames:
-            frame = idle_frames[int(self.animation_time * 5) % len(idle_frames)]
-        elif isinstance(run_frames, list) and run_frames:
+        elif self.player_moving and isinstance(run_frames, list) and run_frames:
             frame = run_frames[int(self.animation_time * 10) % len(run_frames)]
+        elif isinstance(idle_frames, list) and idle_frames:
+            frame = idle_frames[int(self.animation_time * 5) % len(idle_frames)]
 
         if isinstance(frame, pygame.Surface):
             sprite = pygame.transform.flip(frame, self.player_facing < 0, False)
+            if (
+                self.hit_animation_started is not None
+                and self.animation_time < self.damage_flash_until
+                and int((self.animation_time - self.hit_animation_started) / 0.075) % 2 == 0
+            ):
+                sprite = sprite.copy()
+                sprite.fill((255, 70, 70, 255), special_flags=pygame.BLEND_RGBA_MULT)
             self.screen.blit(sprite, visual_rect)
         else:
             pygame.draw.rect(self.screen, (240, 240, 240), visual_rect, border_radius=5)
@@ -490,7 +576,7 @@ class Game:
         shield_status = "sim" if self.has_shield else "não"
         self.draw_text(shield_status, 318, 50, self.small_font, color=(255, 255, 255))
 
-        invulnerable_left = max(0.0, self.invulnerable_until - time.monotonic())
+        invulnerable_left = max(0.0, self.invulnerable_until - self.animation_time)
         inv_text = f"Invuln.: {invulnerable_left:.1f}s" if invulnerable_left > 0 else "Invuln.: 0.0s"
         self.draw_text(inv_text, 404, 50, self.small_font, color=(187, 224, 255))
         self.draw_text(self.active_layout.name, 28, 73, self.small_font, color=(255, 190, 190))
@@ -550,7 +636,10 @@ class Game:
         self.draw_castle(castle_anchor)
 
         player_anchor = self.player.rect.move(-camera_x, 0)
-        shield_visible = self.has_shield or (time.monotonic() < self.invulnerable_until)
+        shield_visible = self.has_shield or (
+            self.animation_time < self.invulnerable_until
+            and self.animation_time >= self.damage_flash_until
+        )
         self.draw_player(player_anchor, shield_visible)
         self.draw_hud()
 
