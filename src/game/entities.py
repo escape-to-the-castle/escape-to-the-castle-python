@@ -138,3 +138,25 @@ class Player:
 class WorldObject:
     def __init__(self, x: int, y: int, width: int, height: int) -> None:
         self.rect = pygame.Rect(x, y, width, height)
+
+
+class MovingObstacle(WorldObject):
+    """Obstáculo que patrulha horizontalmente entre dois limites."""
+
+    def __init__(self, x: int, y: int, width: int, height: int, min_x: int, max_x: int, speed: float) -> None:
+        super().__init__(x, y, width, height)
+        self.x = float(x)
+        self.min_x = min_x
+        self.max_x = max_x
+        self.speed = speed
+        self.direction = 1
+
+    def update(self, dt: float) -> None:
+        self.x += self.direction * self.speed * dt
+        if self.x >= self.max_x:
+            self.x = float(self.max_x)
+            self.direction = -1
+        elif self.x <= self.min_x:
+            self.x = float(self.min_x)
+            self.direction = 1
+        self.rect.x = round(self.x)
