@@ -50,6 +50,21 @@ python -m src.main
 | R | Reiniciar após derrota ou vitória |
 | Esc | Sair |
 
+## Integração futura com o kit Freenove
+
+O teclado continua sendo o controle padrão. A camada GPIO Zero já pode ser
+selecionada no Raspberry Pi sem alterar as regras do jogo:
+
+```bash
+sudo apt install python3-gpiozero
+CASTLE_HARDWARE=freenove python -m src.main
+```
+
+Antes de ativar esse modo, confira a montagem e a pinagem BCM descritas em
+[`docs/05-integracao-hardware.md`](docs/05-integracao-hardware.md). Em um
+computador sem GPIO, não defina `CASTLE_HARDWARE`; nenhum módulo do Raspberry
+Pi será importado.
+
 ## Documentação
 
 - [Motivação](docs/01-motivacao.md)
