@@ -5,6 +5,7 @@ from enum import Enum, auto
 
 
 class Action(Enum):
+    START = auto()
     MOVE_LEFT = auto()
     MOVE_RIGHT = auto()
     JUMP = auto()

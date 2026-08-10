@@ -32,6 +32,7 @@ class Player:
         self.vy = 0.0
         self.ground_y = ground_y
         self.on_ground = True
+        self.speed = self.SPEED
         self.is_rolling = False
         self.roll_time_left = 0.0
         self.roll_direction = 1
@@ -87,7 +88,7 @@ class Player:
             self.start_roll(roll_direction)
 
         movement_direction = self.roll_direction if self.is_rolling else direction
-        movement_speed = self.ROLL_SPEED if self.is_rolling else self.SPEED
+        movement_speed = self.ROLL_SPEED if self.is_rolling else self.speed
         desired_x = max(
             0,
             min(self.x + movement_direction * movement_speed * dt, world_width - self.WIDTH),
@@ -138,3 +139,25 @@ class Player:
 class WorldObject:
     def __init__(self, x: int, y: int, width: int, height: int) -> None:
         self.rect = pygame.Rect(x, y, width, height)
+
+
+class MovingObstacle(WorldObject):
+    """Obstáculo que patrulha horizontalmente entre dois limites."""
+
+    def __init__(self, x: int, y: int, width: int, height: int, min_x: int, max_x: int, speed: float) -> None:
+        super().__init__(x, y, width, height)
+        self.x = float(x)
+        self.min_x = min_x
+        self.max_x = max_x
+        self.speed = speed
+        self.direction = 1
+
+    def update(self, dt: float) -> None:
+        self.x += self.direction * self.speed * dt
+        if self.x >= self.max_x:
+            self.x = float(self.max_x)
+            self.direction = -1
+        elif self.x <= self.min_x:
+            self.x = float(self.min_x)
+            self.direction = 1
+        self.rect.x = round(self.x)

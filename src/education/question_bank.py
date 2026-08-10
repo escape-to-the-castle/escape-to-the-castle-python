@@ -25,10 +25,15 @@ class QuestionBank:
         self._questions = [Question(**item) for item in raw_questions]
         if not self._questions:
             raise ValueError("O banco de perguntas está vazio.")
-        self._last_id: int | None = None
+        self._remaining_questions: list[Question] = []
+        self.reset_round()
+
+    def reset_round(self) -> None:
+        """Prepara uma rodada com cada pergunta aparecendo no máximo uma vez."""
+        self._remaining_questions = self._questions.copy()
+        random.shuffle(self._remaining_questions)
 
     def next_question(self) -> Question:
-        candidates = [q for q in self._questions if q.id != self._last_id]
-        question = random.choice(candidates or self._questions)
-        self._last_id = question.id
-        return question
+        if not self._remaining_questions:
+            raise RuntimeError("Não há mais perguntas inéditas nesta rodada.")
+        return self._remaining_questions.pop()

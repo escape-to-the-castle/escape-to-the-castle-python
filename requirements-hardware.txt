@@ -1,0 +1,2 @@
+# Dependência opcional, instalada apenas no Raspberry Pi.
+gpiozero>=2.0,<3.0

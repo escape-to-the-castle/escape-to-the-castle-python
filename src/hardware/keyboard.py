@@ -19,6 +19,7 @@ class KeyboardHardware(HardwareInterface):
             if event.type == pygame.QUIT:
                 actions.add(Action.QUIT)
             elif event.type == pygame.KEYDOWN:
+                actions.add(Action.START)
                 mapping = {
                     pygame.K_SPACE: Action.JUMP,
                     pygame.K_s: Action.ROLL,
