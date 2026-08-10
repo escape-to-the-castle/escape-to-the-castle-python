@@ -57,7 +57,6 @@ class Game:
         self.large_font = pygame.font.Font(None, 56)
         self.sprites = load_brackeys_sprites(ROOT)
         self.platform_strip_cache: dict[tuple[int, int], pygame.Surface] = {}
-        self.hardware = KeyboardHardware()
         self.hardware = create_hardware()
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")
         self.monitor = PerformanceMonitor()
@@ -185,6 +184,7 @@ class Game:
             self.invulnerable_until = now + SHIELD_INVULNERABILITY_SECONDS
             if cause == "hole":
                 self.player.respawn(self.last_safe_x, GROUND_Y)
+            self.update_hardware_outputs("neutral")
             return
 
         self.lives -= 1
@@ -205,30 +205,9 @@ class Game:
         # jogador no lugar e dão tempo para que ele se afaste do obstáculo.
         if cause == "hole":
             self.player.respawn(self.last_safe_x, GROUND_Y)
-            shield_absorbed_hazard = True
-        else:
-            self.lives -= 1
-            self.feedback_text = "Cuidado! Você perdeu uma vida."
-            shield_absorbed_hazard = False
-        # ``last_safe_x`` is recorded only while the player is standing on
-        # solid ground, so falling into a pit can never create a checkpoint
-        # in mid-air above that same pit.
-        self.player.x = self.last_safe_x
-        self.player.y = float(GROUND_Y - self.player.HEIGHT)
-        self.player.vy = 0.0
-        self.player.on_ground = True
-        if shield_absorbed_hazard:
-            self.feedback_text = ""
-            self.feedback_until = 0.0
-            self.feedback_returns_to_playing = True
-            self.state = GameState.PLAYING
-        elif self.lives <= 0:
-            self.state = GameState.GAME_OVER
-        else:
-            self.feedback_until = time.monotonic() + 1.5
-            self.feedback_returns_to_playing = True
-            self.state = GameState.FEEDBACK
-        self.update_hardware_outputs("neutral" if shield_absorbed_hazard else "error")
+        self.feedback_text = ""
+        self.state = GameState.PLAYING
+        self.update_hardware_outputs("error")
 
     def update(self, dt: float, actions: set[Action]) -> None:
         if Action.QUIT in actions:
@@ -293,7 +272,6 @@ class Game:
             solids,
         )
         self.player_moving = direction != 0 and not self.player.is_rolling
-        self.player.update(dt, direction, Action.JUMP in actions, self.world_width, solids)
         for obstacle in self.moving_obstacles:
             obstacle.update(dt)
 
@@ -329,23 +307,6 @@ class Game:
         if self.player.rect.colliderect(self.castle.rect):
             self.state = GameState.VICTORY
 
-        progress = min(1.0, self.player.x / self.castle.rect.x)
-        self.hardware.update_outputs(
-            OutputState(
-                progress=progress,
-                lives=self.lives,
-                coins=self.coins,
-                feedback=(
-                    "shield"
-                    if self.has_shield
-                    or (
-                        self.animation_time < self.invulnerable_until
-                        and self.animation_time >= self.damage_flash_until
-                    )
-                    else "neutral"
-                ),
-            )
-        )
         self.update_hardware_outputs()
 
     def draw_text(
@@ -651,9 +612,6 @@ class Game:
         shield_status = "sim" if self.has_shield else "não"
         self.draw_text(shield_status, 318, 50, self.small_font, color=(255, 255, 255))
 
-        invulnerable_left = max(0.0, self.invulnerable_until - self.animation_time)
-        inv_text = f"Invuln.: {invulnerable_left:.1f}s" if invulnerable_left > 0 else "Invuln.: 0.0s"
-        self.draw_text(inv_text, 404, 50, self.small_font, color=(187, 224, 255))
         self.draw_text(self.active_layout.name, 28, 73, self.small_font, color=(255, 190, 190))
 
     def draw_main_menu(self) -> None:
@@ -754,11 +712,6 @@ class Game:
         self.draw_castle(castle_anchor)
 
         player_anchor = self.player.rect.move(-camera_x, 0)
-        shield_visible = self.has_shield or (
-            self.animation_time < self.invulnerable_until
-            and self.animation_time >= self.damage_flash_until
-        )
-        self.draw_player(player_anchor, shield_visible)
         self.draw_player(player_anchor, self.has_shield)
         self.draw_hud()
 

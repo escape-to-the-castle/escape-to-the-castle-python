@@ -6,7 +6,14 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 
 from src.game.assets import compose_platform_strip
-from src.game.config import DEATH_ANIMATION_SECONDS, PLAYER_HEIGHT, PLAYER_ROLL_HEIGHT
+from src.game.config import (
+    DEATH_ANIMATION_SECONDS,
+    PLAYER_HEIGHT,
+    PLAYER_ROLL_HEIGHT,
+    PLAYER_SPEED,
+    PLAYER_SPEED_BOOST_MULTIPLIER,
+    SCREEN_HEIGHT,
+)
 from src.game.entities import Player
 from src.game.levels import (
     PHASE_1_PLATFORMS,
@@ -17,11 +24,9 @@ from src.game.levels import (
     maximum_jump_rise,
     validate_platform_specs,
 )
-from src.game.config import PLAYER_SPEED, PLAYER_SPEED_BOOST_MULTIPLIER, SCREEN_HEIGHT
-from src.game.entities import Player
 from src.hardware.interface import Action
 from src.hardware.keyboard import KeyboardHardware
-from src.main import GROUND_Y, Game, GameState, GameState, PhaseId
+from src.main import GROUND_Y, Game, GameState, PhaseId
 
 
 def test_platform_strip_joins_detailed_tiles_without_stretching():
@@ -70,9 +75,6 @@ def test_air_platform_uses_the_platform_tiles():
     expected.blit(strip, (0, 0))
     actual = game.screen.subsurface(rect)
     assert pygame.image.tobytes(actual, "RGB") == pygame.image.tobytes(expected, "RGB")
-from src.hardware.interface import Action
-
-
 def test_game_initializes_and_renders():
     game = Game()
     game.update(1 / 60, set())
@@ -277,7 +279,7 @@ def test_phase_2_question_platforms_require_precise_but_possible_jumps():
         player.y = float(source.rect.top - Player.HEIGHT)
 
         for frame in range(120):
-            player.update(1 / 60, 1, frame == 0, layout.world_width, [source.rect, target.rect])
+            player.update(1 / 60, 1, frame == 0, False, 1, layout.world_width, [source.rect, target.rect])
             if player.on_ground and frame > 3:
                 break
 
@@ -318,7 +320,7 @@ def test_phase_2_holes_can_be_crossed_with_the_player_physics():
     for hole in layout.holes:
         player = Player(hole.rect.left - Player.WIDTH, GROUND_Y)
         for frame in range(120):
-            player.update(1 / 60, 1, frame == 0, layout.world_width, solids)
+            player.update(1 / 60, 1, frame == 0, False, 1, layout.world_width, solids)
             if player.on_ground and frame > 0:
                 break
             assert player.y <= SCREEN_HEIGHT + 40

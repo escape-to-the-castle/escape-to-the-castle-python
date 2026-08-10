@@ -32,6 +32,7 @@ class Player:
         self.vy = 0.0
         self.ground_y = ground_y
         self.on_ground = True
+        self.speed = self.SPEED
         self.is_rolling = False
         self.roll_time_left = 0.0
         self.roll_direction = 1
@@ -87,7 +88,7 @@ class Player:
             self.start_roll(roll_direction)
 
         movement_direction = self.roll_direction if self.is_rolling else direction
-        movement_speed = self.ROLL_SPEED if self.is_rolling else self.SPEED
+        movement_speed = self.ROLL_SPEED if self.is_rolling else self.speed
         desired_x = max(
             0,
             min(self.x + movement_direction * movement_speed * dt, world_width - self.WIDTH),
