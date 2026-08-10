@@ -1,4 +1,4 @@
-"""Carregamento dos assets visuais usados pelo jogo."""
+"""Carregamento dos assets visuais e sonoros usados pelo jogo."""
 
 from __future__ import annotations
 
@@ -53,6 +53,15 @@ def load_single_sprite(path: Path, scale_to: tuple[int, int] | None = None) -> p
     if scale_to is not None:
         surface = pygame.transform.smoothscale(surface, scale_to)
     return surface
+
+
+def load_sound(path: Path) -> pygame.mixer.Sound | None:
+    if not path.exists() or pygame.mixer.get_init() is None:
+        return None
+    try:
+        return pygame.mixer.Sound(path)
+    except pygame.error:
+        return None
 
 
 def load_platform_rows(path: Path, tile_size: int = PLATFORM_TILE_SIZE) -> list[PlatformTiles]:
@@ -117,3 +126,16 @@ def load_brackeys_sprites(root: Path) -> dict[str, object]:
     sprites["platform_rows"] = load_platform_rows(directory / "platforms.png")
     sprites["fruit"] = load_single_sprite(directory / "fruit.png", (34, 34))
     return sprites
+
+
+def load_brackeys_sounds(root: Path) -> dict[str, pygame.mixer.Sound | None]:
+    directory = root / "brackeys_platformer_assets" / "sounds"
+    return {
+        name: load_sound(directory / filename)
+        for name, filename in {
+            "coin": "coin.wav",
+            "jump": "jump.wav",
+            "hurt": "hurt.wav",
+            "power_up": "power_up.wav",
+        }.items()
+    }

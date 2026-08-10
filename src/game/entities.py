@@ -83,7 +83,8 @@ class Player:
         roll_direction: int,
         world_width: int,
         solids: list[pygame.Rect],
-    ) -> None:
+    ) -> bool:
+        jumped = False
         if roll:
             self.start_roll(roll_direction)
 
@@ -105,6 +106,7 @@ class Player:
         if jump and self.on_ground and not self.is_rolling:
             self.vy = self.JUMP_SPEED
             self.on_ground = False
+            jumped = True
 
         previous_bottom = self.y + self.height
         self.vy += self.GRAVITY * dt
@@ -134,6 +136,7 @@ class Player:
             self.roll_time_left = max(0.0, self.roll_time_left - dt)
             if self.roll_time_left == 0.0:
                 self.try_finish_roll(solids)
+        return jumped
 
 
 class WorldObject:

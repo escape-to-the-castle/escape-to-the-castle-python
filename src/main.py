@@ -8,7 +8,7 @@ from pathlib import Path
 import pygame
 
 from .education.question_bank import Question, QuestionBank
-from .game.assets import compose_platform_strip, load_brackeys_sprites
+from .game.assets import compose_platform_strip, load_brackeys_sounds, load_brackeys_sprites
 from .game.config import (
     DAMAGE_INVULNERABILITY_SECONDS,
     DEATH_ANIMATION_SECONDS,
@@ -56,6 +56,7 @@ class Game:
         self.small_font = pygame.font.Font(None, 26)
         self.large_font = pygame.font.Font(None, 56)
         self.sprites = load_brackeys_sprites(ROOT)
+        self.sounds = load_brackeys_sounds(ROOT)
         self.platform_strip_cache: dict[tuple[int, int], pygame.Surface] = {}
         self.hardware = create_hardware()
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")
@@ -147,6 +148,11 @@ class Game:
             )
         )
 
+    def play_sound(self, name: str) -> None:
+        sound = self.sounds.get(name)
+        if sound is not None:
+            sound.play()
+
     def resolve_answer(self, selected: int) -> None:
         assert self.current_question is not None
         now = time.monotonic()
@@ -154,9 +160,11 @@ class Game:
         if selected == self.current_question.correct_index:
             bonus = 5 if elapsed <= 5.0 else 0
             self.coins += 10 + bonus
+            self.play_sound("coin")
             self.streak += 1
             if self.streak == 3:
                 self.has_shield = True
+                self.play_sound("power_up")
             if self.streak == 5:
                 self.lives += 1
             if bonus:
@@ -187,6 +195,7 @@ class Game:
             self.update_hardware_outputs("neutral")
             return
 
+        self.play_sound("hurt")
         self.lives -= 1
         if self.lives <= 0:
             if cause == "hole":
@@ -262,7 +271,7 @@ class Game:
         if direction:
             self.player_facing = 1 if direction > 0 else -1
         solids = [obj.rect for obj in self.ground_segments] + [obj.rect for obj in self.platforms]
-        self.player.update(
+        jumped = self.player.update(
             dt,
             direction,
             Action.JUMP in actions,
@@ -271,6 +280,8 @@ class Game:
             self.world_width,
             solids,
         )
+        if jumped:
+            self.play_sound("jump")
         self.player_moving = direction != 0 and not self.player.is_rolling
         for obstacle in self.moving_obstacles:
             obstacle.update(dt)

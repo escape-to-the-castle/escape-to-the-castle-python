@@ -1,6 +1,7 @@
 import os
-from unittest.mock import patch
+from unittest.mock import call, patch
 
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import pygame
@@ -92,6 +93,52 @@ def test_knight_animation_rows_are_loaded_without_label_cells():
     assert len(game.sprites["player_roll"]) == 8
     assert len(game.sprites["player_hit"]) == 4
     assert len(game.sprites["player_death"]) == 4
+
+
+def test_all_gameplay_sounds_are_loaded():
+    game = Game()
+
+    assert set(game.sounds) == {"coin", "jump", "hurt", "power_up"}
+    assert all(sound is not None for sound in game.sounds.values())
+
+
+def test_correct_answer_plays_coin_and_shield_sounds_but_not_speed_sound():
+    game = Game()
+    game.start_phase(PhaseId.PROTOTYPE)
+    game.current_question = game.question_bank.next_question()
+    game.question_started = 100.0
+    game.streak = 2
+
+    with patch("src.main.time.monotonic", return_value=103.0), patch.object(
+        game, "play_sound"
+    ) as play_sound:
+        game.resolve_answer(game.current_question.correct_index)
+
+    assert play_sound.call_args_list == [call("coin"), call("power_up")]
+    assert game.has_shield
+    assert game.speed_boost_until > 103.0
+
+
+def test_jump_sound_plays_only_when_a_jump_really_starts():
+    game = Game()
+    game.start_phase(PhaseId.PROTOTYPE)
+
+    with patch.object(game, "play_sound") as play_sound:
+        game.update(1 / 60, {Action.JUMP})
+        game.update(1 / 60, {Action.JUMP})
+
+    assert play_sound.call_args_list == [call("jump")]
+
+
+def test_hurt_sound_plays_for_spike_and_hole_damage():
+    for cause in ("spike", "hole"):
+        game = Game()
+        game.start_phase(PhaseId.PHASE_1)
+
+        with patch.object(game, "play_sound") as play_sound:
+            game.on_hazard(cause)
+
+        play_sound.assert_called_once_with("hurt")
 
 
 def test_keyboard_maps_down_key_to_roll():
