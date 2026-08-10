@@ -45,6 +45,7 @@ python -m src.main
 |---|---|
 | A/D ou setas | Movimentar |
 | Espaço | Pular |
+| S, seta para baixo ou Shift | Rolar |
 | 1, 2, 3 e 4 | Responder perguntas |
 | R | Reiniciar após derrota ou vitória |
 | Esc | Sair |

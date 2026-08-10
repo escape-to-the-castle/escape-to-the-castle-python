@@ -21,6 +21,10 @@ class KeyboardHardware(HardwareInterface):
             elif event.type == pygame.KEYDOWN:
                 mapping = {
                     pygame.K_SPACE: Action.JUMP,
+                    pygame.K_s: Action.ROLL,
+                    pygame.K_DOWN: Action.ROLL,
+                    pygame.K_LSHIFT: Action.ROLL,
+                    pygame.K_RSHIFT: Action.ROLL,
                     pygame.K_1: Action.ANSWER_1,
                     pygame.K_2: Action.ANSWER_2,
                     pygame.K_3: Action.ANSWER_3,

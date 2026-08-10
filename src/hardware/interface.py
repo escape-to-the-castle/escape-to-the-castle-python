@@ -8,6 +8,7 @@ class Action(Enum):
     MOVE_LEFT = auto()
     MOVE_RIGHT = auto()
     JUMP = auto()
+    ROLL = auto()
     ANSWER_1 = auto()
     ANSWER_2 = auto()
     ANSWER_3 = auto()
