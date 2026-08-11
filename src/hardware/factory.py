@@ -4,6 +4,8 @@ import os
 
 from .interface import HardwareInterface, OutputState
 from .keyboard import KeyboardHardware
+from .freenove import FreenoveHardware
+
 
 
 class CompositeHardware(HardwareInterface):
@@ -35,7 +37,7 @@ class CompositeHardware(HardwareInterface):
 
 def create_hardware(mode: str | None = None) -> HardwareInterface:
     """Seleciona teclado, placa Freenove ou ambos."""
-    selected_mode = (mode or os.getenv("CASTLE_HARDWARE", "keyboard")).strip().lower()
+    '''selected_mode = (mode or os.getenv("CASTLE_HARDWARE", "keyboard")).strip().lower()
     if selected_mode == "keyboard":
         return KeyboardHardware()
     if selected_mode == "freenove":
@@ -43,7 +45,8 @@ def create_hardware(mode: str | None = None) -> HardwareInterface:
 
         return FreenoveHardware()
     if selected_mode == "hybrid":
-        from .freenove import FreenoveHardware
+        from .freenove import FreenoveHardware'''
 
-        return CompositeHardware(KeyboardHardware(), FreenoveHardware())
-    raise ValueError(f"Modo de hardware desconhecido: {selected_mode}")
+    return FreenoveHardware()
+    
+    '''raise ValueError(f"Modo de hardware desconhecido: {selected_mode}")'''
