@@ -186,7 +186,6 @@ class Game:
             self.streak += 1
             if self.streak == 3:
                 self.has_shield = True
-                self.play_sound("power_up")
             if self.streak == 5:
                 self.lives += 1
             if bonus:
