@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 import threading
 import time
@@ -12,17 +13,59 @@ from .interface import Action, HardwareInterface, OutputState
 class FreenovePinConfig:
     """Pinagem BCM inicial; deve ser conferida antes da montagem física."""
 
-    move_left: int = 17
-    move_right: int = 27
-    jump: int = 22
-    answer_1: int = 5
-    answer_2: int = 6
-    answer_3: int = 13
-    answer_4: int = 19
-    led_red: int = 16
-    led_green: int = 20
-    led_blue: int = 21
-    buzzer: int = 26
+    move_left: int = 26
+    move_right: int = 16
+    jump: int = 20
+    roll: int = 21
+    answer_1: int = 21
+    answer_2: int = 26
+    answer_3: int = 20
+    answer_4: int = 16
+    led_red: int = 17
+    led_green: int = 24
+    led_blue: int = 12
+    buzzer: int = 4
+    restart: int = 21
+
+    @classmethod
+    def from_env(cls) -> "FreenovePinConfig":
+        """Carrega sobreposições ``CASTLE_PIN_*`` usando numeração BCM."""
+        defaults = cls()
+        values = {
+            field_name: int(os.getenv(f"CASTLE_PIN_{field_name.upper()}", getattr(defaults, field_name)))
+            for field_name in defaults.__dataclass_fields__
+        }
+        config = cls(**values)
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        input_fields = {
+            "move_left",
+            "move_right",
+            "jump",
+            "roll",
+            "answer_1",
+            "answer_2",
+            "answer_3",
+            "answer_4",
+            "restart",
+        }
+        assignments: dict[int, list[str]] = {}
+        for field_name in self.__dataclass_fields__:
+            pin = getattr(self, field_name)
+            assignments.setdefault(pin, []).append(field_name)
+        # Um botão pode assumir mais de uma ação (por exemplo, esquerda no
+        # jogo e resposta 1 nas perguntas). Entradas e saídas nunca podem
+        # compartilhar um GPIO.
+        conflicts = {
+            pin: names
+            for pin, names in assignments.items()
+            if len(names) > 1 and not set(names).issubset(input_fields)
+        }
+        if conflicts:
+            details = ", ".join(f"GPIO {pin}: {', '.join(names)}" for pin, names in conflicts.items())
+            raise ValueError(f"GPIO atribuído a mais de uma função: {details}")
 
 
 class FreenoveHardware(HardwareInterface):
@@ -39,7 +82,9 @@ class FreenoveHardware(HardwareInterface):
         led_factory: Callable[..., Any] | None = None,
         buzzer_factory: Callable[..., Any] | None = None,
     ) -> None:
-        self.pins = pins or FreenovePinConfig()
+        self.pins = pins or FreenovePinConfig.from_env()
+        self.pins.validate()
+        self.debug = os.getenv("CASTLE_GPIO_DEBUG", "0").strip().lower() in {"1", "true", "yes"}
         if button_factory is None or led_factory is None or buzzer_factory is None:
             try:
                 from gpiozero import Button, LED, TonalBuzzer
@@ -52,14 +97,24 @@ class FreenoveHardware(HardwareInterface):
             led_factory = led_factory or LED
             buzzer_factory = buzzer_factory or TonalBuzzer
 
+        action_pins = {
+            Action.MOVE_LEFT: self.pins.move_left,
+            Action.MOVE_RIGHT: self.pins.move_right,
+            Action.JUMP: self.pins.jump,
+            Action.ROLL: self.pins.roll,
+            Action.ANSWER_1: self.pins.answer_1,
+            Action.ANSWER_2: self.pins.answer_2,
+            Action.ANSWER_3: self.pins.answer_3,
+            Action.ANSWER_4: self.pins.answer_4,
+            Action.RESTART: self.pins.restart,
+        }
+        self._button_devices = {
+            pin: button_factory(pin, pull_up=True, bounce_time=0.05)
+            for pin in set(action_pins.values())
+        }
         self._buttons = {
-            Action.MOVE_LEFT: button_factory(self.pins.move_left, pull_up=True, bounce_time=0.05),
-            Action.MOVE_RIGHT: button_factory(self.pins.move_right, pull_up=True, bounce_time=0.05),
-            Action.JUMP: button_factory(self.pins.jump, pull_up=True, bounce_time=0.05),
-            Action.ANSWER_1: button_factory(self.pins.answer_1, pull_up=True, bounce_time=0.05),
-            Action.ANSWER_2: button_factory(self.pins.answer_2, pull_up=True, bounce_time=0.05),
-            Action.ANSWER_3: button_factory(self.pins.answer_3, pull_up=True, bounce_time=0.05),
-            Action.ANSWER_4: button_factory(self.pins.answer_4, pull_up=True, bounce_time=0.05),
+            action: self._button_devices[pin]
+            for action, pin in action_pins.items()
         }
         self._continuous_actions = {Action.MOVE_LEFT, Action.MOVE_RIGHT}
         self._previously_pressed: set[Action] = set()
@@ -76,8 +131,17 @@ class FreenoveHardware(HardwareInterface):
     def poll_actions(self) -> set[Action]:
         pressed = {action for action, button in self._buttons.items() if button.is_pressed}
         actions = (pressed & self._continuous_actions) | (pressed - self._previously_pressed)
+        if self.debug and pressed != self._previously_pressed:
+            names = ", ".join(sorted(action.name for action in pressed)) or "nenhum"
+            print(f"[GPIO] pressionados: {names}", flush=True)
         self._previously_pressed = pressed
         return actions
+
+    def pin_summary(self) -> str:
+        return "\n".join(
+            f"{action.name:>12}: GPIO {button.pin.number}"
+            for action, button in self._buttons.items()
+        )
 
     def update_outputs(self, state: OutputState) -> None:
         colors = {
@@ -116,5 +180,5 @@ class FreenoveHardware(HardwareInterface):
         self._buzzer.beep(on_time=duration, off_time=0.05, n=1, background=True)
 
     def close(self) -> None:
-        for device in [*self._buttons.values(), *self._leds.values(), self._buzzer]:
+        for device in [*self._button_devices.values(), *self._leds.values(), self._buzzer]:
             device.close()
