@@ -107,7 +107,7 @@ def test_freenove_adapter_updates_outputs_and_closes_devices():
     assert all(device.closed for device in created)
 
 
-def test_joystick_maps_x_axis_roll_and_click_to_game_actions():
+def test_joystick_maps_only_x_axis_and_start_click_to_game_actions():
     adc = FakeADC(x=40, y=220)
     button = FakeDevice(7)
     joystick = FreenoveJoystick(
@@ -116,13 +116,13 @@ def test_joystick_maps_x_axis_roll_and_click_to_game_actions():
         button_factory=lambda _pin, **_kwargs: button,
     )
 
-    assert joystick.poll_actions() == {Action.MOVE_RIGHT, Action.ROLL}
+    assert joystick.poll_actions() == {Action.MOVE_RIGHT}
     assert joystick.poll_actions() == {Action.MOVE_RIGHT}
 
     adc.values[5] = 220
     adc.values[6] = 128
     button.is_pressed = True
-    assert joystick.poll_actions() == {Action.MOVE_LEFT, Action.JUMP, Action.START}
+    assert joystick.poll_actions() == {Action.MOVE_LEFT, Action.START}
     assert joystick.poll_actions() == {Action.MOVE_LEFT}
 
     joystick.close()

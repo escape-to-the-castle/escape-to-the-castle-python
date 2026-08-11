@@ -60,7 +60,6 @@ class FreenoveJoystick:
         self.adc = adc
         self.button = button_factory(self.config.button_pin, pull_up=True, bounce_time=0.05)
         self._button_was_pressed = False
-        self._roll_was_active = False
 
     def _create_manual_adc(self):
         try:
@@ -82,11 +81,8 @@ class FreenoveJoystick:
 
     def poll_actions(self) -> set[Action]:
         value_x = int(self.adc.analogRead(self.config.x_channel))
-        value_y = int(self.adc.analogRead(self.config.y_channel))
         if self.config.invert_x:
             value_x = 255 - value_x
-        if self.config.invert_y:
-            value_y = 255 - value_y
 
         actions: set[Action] = set()
         if value_x < self.config.low_threshold:
@@ -94,15 +90,8 @@ class FreenoveJoystick:
         elif value_x > self.config.high_threshold:
             actions.add(Action.MOVE_RIGHT)
 
-        # Empurrar o eixo para baixo aciona a rolagem uma vez por movimento.
-        roll_active = value_y > self.config.high_threshold
-        if roll_active and not self._roll_was_active:
-            actions.add(Action.ROLL)
-        self._roll_was_active = roll_active
-
         pressed = bool(self.button.is_pressed)
         if pressed and not self._button_was_pressed:
-            actions.add(Action.JUMP)
             actions.add(Action.START)
         self._button_was_pressed = pressed
         return actions

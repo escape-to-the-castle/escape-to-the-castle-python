@@ -55,8 +55,7 @@ Na placa Freenove:
 | Controle | Ação |
 |---|---|
 | Joystick horizontal | Movimentar |
-| Joystick para baixo | Rolar |
-| Clique do joystick | Pular |
+| Clique do joystick | Iniciar |
 | Botão vermelho | Alternativa 1 / rolar / reiniciar |
 | Botão amarelo | Alternativa 2 |
 | Botão azul | Alternativa 3 / pular |

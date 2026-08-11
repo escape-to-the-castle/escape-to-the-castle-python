@@ -38,9 +38,10 @@ O jogo seleciona a implementação por meio da variável `CASTLE_HARDWARE`:
 - `freenove`: instancia `FreenoveHardware` e acessa os GPIOs físicos.
 
 O adaptador usa numeração **BCM**, botões com `pull_up=True` e debounce de 50 ms.
-O eixo X do joystick controla o movimento continuamente, o eixo Y para baixo
-aciona a rolagem e o clique Z pula. As respostas são emitidas apenas na borda
-de pressionamento, evitando múltiplas respostas enquanto o botão fica segurado.
+O eixo X do joystick controla o movimento continuamente e o clique Z inicia o
+jogo. Pulo e rolagem ficam exclusivamente nos botões azul e vermelho. As
+respostas são emitidas apenas na borda de pressionamento, evitando múltiplas
+respostas enquanto o botão fica segurado.
 
 Pinagem inicial centralizada em `FreenovePinConfig`:
 
