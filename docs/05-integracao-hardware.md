@@ -48,9 +48,9 @@ Pinagem inicial centralizada em `FreenovePinConfig`:
 |---|---:|
 | Joystick Z (clique) | 7 |
 | Joystick X / Y no ADS7830 | canais 5 / 6, I²C `0x48` |
-| Vermelho — alternativa 1 e reiniciar | 21 |
+| Vermelho — alternativa 1, rolar e reiniciar | 21 |
 | Amarelo — alternativa 2 | 26 |
-| Azul — alternativa 3 | 20 |
+| Azul — alternativa 3 e pular | 20 |
 | Verde — alternativa 4 | 16 |
 | LED RGB vermelho / verde / azul | 17 / 24 / 12 |
 | Buzzer passivo | 4 |
@@ -67,13 +67,18 @@ sudo apt update
 sudo apt install python3-gpiozero python3-smbus i2c-tools
 sudo raspi-config
 i2cdetect -y 1
-CASTLE_HARDWARE=freenove CASTLE_JOYSTICK_ENABLED=1 python -m src.main
+pip install -r requirements-hardware.txt
+CASTLE_HARDWARE=freenove python -m src.main
 ```
 
 Em `raspi-config`, habilite `Interface Options → I2C`. O comando `i2cdetect`
 deve mostrar o endereço `48`. O jogo aceita o `ADCDevice.py` oficial da
 Freenove na raiz do repositório, mas também inclui um driver ADS7830 mínimo via
 SMBus para funcionar sem essa cópia.
+
+`python3-smbus` instalado pelo `apt` pode não ficar visível dentro de uma
+`.venv`. Por isso, `requirements-hardware.txt` inclui `smbus2`, que oferece a
+mesma API dentro do ambiente virtual.
 
 Calibração opcional do joystick:
 
@@ -105,6 +110,7 @@ Para desenvolvimento fora do Raspberry Pi, as fábricas dos dispositivos são
 injetáveis. Assim, entradas, LEDs, buzzer, debounce lógico e encerramento podem
 ser testados com objetos falsos, sem acessar pinos reais.
 
-Os próximos incrementos ficam isolados no mesmo adaptador: joystick analógico
-via ADC, servo, LCD e sensores. Eles não exigirão mudanças na física, nas fases
-ou no motor educativo.
+O joystick analógico já está integrado e é habilitado automaticamente no modo
+`freenove`. Os próximos incrementos ficam isolados no mesmo adaptador: servo,
+LCD e sensores. Eles não exigirão mudanças na física, nas fases ou no motor
+educativo.

@@ -81,6 +81,7 @@ class FreenoveHardware(HardwareInterface):
         self.pins = pins or FreenovePinConfig.from_env()
         self.pins.validate()
         self.debug = os.getenv("CASTLE_GPIO_DEBUG", "0").strip().lower() in {"1", "true", "yes"}
+        using_real_factories = button_factory is None and led_factory is None and buzzer_factory is None
         if button_factory is None or led_factory is None or buzzer_factory is None:
             try:
                 from gpiozero import Button, LED, TonalBuzzer
@@ -99,6 +100,10 @@ class FreenoveHardware(HardwareInterface):
             Action.ANSWER_3: self.pins.answer_3,
             Action.ANSWER_4: self.pins.answer_4,
             Action.RESTART: self.pins.restart,
+            # Controles redundantes caso o eixo/click analógico não esteja
+            # disponível: vermelho rola e azul pula durante a fase.
+            Action.ROLL: self.pins.answer_1,
+            Action.JUMP: self.pins.answer_3,
         }
         self._button_devices = {
             pin: button_factory(pin, pull_up=True, bounce_time=0.05)
@@ -111,7 +116,10 @@ class FreenoveHardware(HardwareInterface):
         self._continuous_actions = {Action.MOVE_LEFT, Action.MOVE_RIGHT}
         self._previously_pressed: set[Action] = set()
         if enable_joystick is None:
-            enable_joystick = os.getenv("CASTLE_JOYSTICK_ENABLED", "0").strip().lower() in {
+            # Na placa real o joystick é o controle principal. Em testes com
+            # fábricas injetadas ele permanece desligado por padrão.
+            default_enabled = "1" if using_real_factories else "0"
+            enable_joystick = os.getenv("CASTLE_JOYSTICK_ENABLED", default_enabled).strip().lower() in {
                 "1",
                 "true",
                 "yes",

@@ -7,10 +7,14 @@ class ADS7830:
     def __init__(self, address: int = 0x48, bus_number: int = 1) -> None:
         try:
             import smbus
-        except ImportError as error:
-            raise RuntimeError(
-                "SMBus não está instalado. Execute: sudo apt install python3-smbus"
-            ) from error
+        except ImportError:
+            try:
+                import smbus2 as smbus
+            except ImportError as error:
+                raise RuntimeError(
+                    "SMBus não está disponível neste Python. Dentro da venv, "
+                    "execute: pip install smbus2"
+                ) from error
         self.address = address
         self.bus = smbus.SMBus(bus_number)
         try:

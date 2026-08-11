@@ -57,9 +57,9 @@ Na placa Freenove:
 | Joystick horizontal | Movimentar |
 | Joystick para baixo | Rolar |
 | Clique do joystick | Pular |
-| Botão vermelho | Alternativa 1 / reiniciar |
+| Botão vermelho | Alternativa 1 / rolar / reiniciar |
 | Botão amarelo | Alternativa 2 |
-| Botão azul | Alternativa 3 |
+| Botão azul | Alternativa 3 / pular |
 | Botão verde | Alternativa 4 |
 
 ## Integração futura com o kit Freenove
@@ -69,12 +69,14 @@ selecionada no Raspberry Pi sem alterar as regras do jogo:
 
 ```bash
 sudo apt install python3-gpiozero
-CASTLE_HARDWARE=freenove CASTLE_JOYSTICK_ENABLED=1 python -m src.main
+pip install -r requirements-hardware.txt
+CASTLE_HARDWARE=freenove python -m src.main
 ```
 
 O joystick requer I²C habilitado. Se `ADCDevice.py` da Freenove estiver na raiz
 do projeto ele será usado; caso contrário, o jogo utiliza o driver ADS7830
-interno via SMBus.
+interno via SMBus. No modo `freenove`, o joystick é habilitado automaticamente;
+use `CASTLE_JOYSTICK_ENABLED=0` somente para executar sem o módulo analógico.
 
 Antes de ativar esse modo, confira a montagem e a pinagem BCM descritas em
 [`docs/05-integracao-hardware.md`](docs/05-integracao-hardware.md). Em um

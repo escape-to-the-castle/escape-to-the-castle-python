@@ -63,6 +63,30 @@ def test_freenove_adapter_reads_colored_buttons_on_press_edge():
     assert hardware.poll_actions() == set()
 
 
+def test_red_rolls_and_blue_jumps_without_duplicate_gpio_devices():
+    devices: dict[int, FakeDevice] = {}
+    created_pins: list[int] = []
+
+    def factory(pin: int, **kwargs) -> FakeDevice:
+        device = FakeDevice(pin, **kwargs)
+        devices[pin] = device
+        created_pins.append(pin)
+        return device
+
+    hardware = FreenoveHardware(button_factory=factory, led_factory=factory, buzzer_factory=factory)
+
+    devices[hardware.pins.answer_1].is_pressed = True
+    assert hardware.poll_actions() == {Action.ANSWER_1, Action.RESTART, Action.ROLL}
+
+    devices[hardware.pins.answer_1].is_pressed = False
+    hardware.poll_actions()
+    devices[hardware.pins.answer_3].is_pressed = True
+    assert hardware.poll_actions() == {Action.ANSWER_3, Action.JUMP}
+
+    assert created_pins.count(hardware.pins.answer_1) == 1
+    assert created_pins.count(hardware.pins.answer_3) == 1
+
+
 def test_freenove_adapter_updates_outputs_and_closes_devices():
     created: list[FakeDevice] = []
 
