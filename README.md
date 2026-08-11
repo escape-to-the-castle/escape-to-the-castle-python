@@ -85,6 +85,12 @@ Nesse modo, os efeitos de áudio deixam de depender do `pygame.mixer` e passam
 a ser aproximados por uma sequência de frequências tocadas no buzzer passivo.
 O modo teclado continua usando os arquivos `.wav` originais via `pygame`.
 
+Para facilitar evolução futura, existe também um manifesto ROM em
+[`data/buzzer_roms.json`](data/buzzer_roms.json) com os sons já quantizados em
+passos de 8 bits. O script de geração fica em
+[`scripts/generate_buzzer_roms.py`](scripts/generate_buzzer_roms.py) e pode ser
+reexecutado quando os `.wav` mudarem.
+
 ## Documentação
 
 - [Motivação](docs/01-motivacao.md)

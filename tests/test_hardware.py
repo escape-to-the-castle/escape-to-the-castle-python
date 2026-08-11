@@ -1,3 +1,4 @@
+import json
 import math
 import wave
 from pathlib import Path
@@ -7,7 +8,7 @@ from src.hardware.freenove import FreenoveHardware
 from src.hardware.interface import Action, OutputState
 from src.hardware.joystick import FreenoveJoystick, JoystickConfig
 from src.hardware.keyboard import KeyboardHardware
-from src.hardware.passive_audio import PassiveBuzzerTrack, ToneEvent, wav_to_tone_events
+from src.hardware.passive_audio import PassiveBuzzerTrack, ToneEvent, rom_steps_to_tone_events, wav_to_rom_steps
 
 
 class FakeDevice:
@@ -26,6 +27,18 @@ class FakeDevice:
 
     def beep(self, **_kwargs) -> None:
         self.beeps += 1
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeADC:
+    def __init__(self, x: int = 128, y: int = 128) -> None:
+        self.values = {5: x, 6: y}
+        self.closed = False
+
+    def analogRead(self, channel: int) -> int:
+        return self.values[channel]
 
     def close(self) -> None:
         self.closed = True
@@ -69,18 +82,6 @@ def test_freenove_adapter_updates_outputs_and_closes_devices():
     assert all(device.closed for device in created)
 
 
-class FakeADC:
-    def __init__(self, x: int = 128, y: int = 128) -> None:
-        self.values = {5: x, 6: y}
-        self.closed = False
-
-    def analogRead(self, channel: int) -> int:
-        return self.values[channel]
-
-    def close(self) -> None:
-        self.closed = True
-
-
 def test_joystick_maps_x_axis_roll_and_click_to_game_actions():
     adc = FakeADC(x=40, y=220)
     button = FakeDevice(7)
@@ -91,7 +92,6 @@ def test_joystick_maps_x_axis_roll_and_click_to_game_actions():
     )
 
     assert joystick.poll_actions() == {Action.MOVE_LEFT, Action.ROLL}
-    # Rolagem e clique são eventos de borda; movimento é contínuo.
     assert joystick.poll_actions() == {Action.MOVE_LEFT}
 
     adc.values[5] = 220
@@ -130,7 +130,7 @@ def test_freenove_adapter_combines_joystick_and_colored_button():
     assert hardware.poll_actions() == {Action.MOVE_RIGHT, Action.ANSWER_4}
 
 
-def test_wav_analysis_generates_tone_events(tmp_path: Path):
+def test_wav_analysis_generates_rom_steps(tmp_path: Path):
     wav_path = tmp_path / "tone.wav"
     sample_rate = 8000
     duration = 0.2
@@ -148,10 +148,26 @@ def test_wav_analysis_generates_tone_events(tmp_path: Path):
             frames.extend(value.to_bytes(2, byteorder="little", signed=True))
         wav_file.writeframes(bytes(frames))
 
-    events = wav_to_tone_events(wav_path, window_seconds=0.05)
+    steps = wav_to_rom_steps(wav_path, window_seconds=0.05)
+    events = rom_steps_to_tone_events(steps)
 
-    assert events
+    assert steps
     assert any(event.frequency is not None and abs(event.frequency - frequency) < 80 for event in events)
+
+
+def test_buzzer_rom_manifest_can_roundtrip(tmp_path: Path):
+    manifest_path = tmp_path / "buzzer_roms.json"
+    payload = {
+        "format": "escape-to-the-castle-buzzer-rom-v1",
+        "duration_ms": 20,
+        "sounds": {
+            "jump": [{"tone": 153, "duration_ticks": 2}, {"tone": 191, "duration_ticks": 2}],
+        },
+    }
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert data["sounds"]["jump"][0]["tone"] == 153
 
 
 def test_passive_track_stops_buzzer_even_when_play_fails():
@@ -168,7 +184,6 @@ def test_passive_track_stops_buzzer_even_when_play_fails():
     buzzer = FailingBuzzer()
     track = PassiveBuzzerTrack(buzzer, (ToneEvent(440.0, 0.01),))
 
-    # Executa sincronamente para tornar a garantia de limpeza determinística.
     track._run(track._generation)
 
     assert buzzer.stopped is True

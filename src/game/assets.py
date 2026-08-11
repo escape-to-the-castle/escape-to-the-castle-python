@@ -135,7 +135,6 @@ def load_brackeys_sounds(
     root: Path,
     backend: str = "keyboard",
     buzzer_factory: Callable[..., object] | None = None,
-    buzzer: object | None = None,
 ) -> dict[str, object | None]:
     directory = root / "brackeys_platformer_assets" / "sounds"
     rom_manifest = root / "data" / "buzzer_roms.json"
@@ -146,14 +145,11 @@ def load_brackeys_sounds(
         "power_up": "power_up.wav",
     }
 
-    if backend.strip().lower() in {"freenove", "hybrid"}:
-        if buzzer is not None:
-            library = PassiveBuzzerLibrary(buzzer=buzzer)
-            return {name: library.load_track(directory / filename) for name, filename in sound_files.items()}
+    if backend.strip().lower() == "freenove":
         factory = buzzer_factory
         if factory is None:
             try:
-                from gpiozero import TonalBuzzer
+                from gpiozero import TonalBuzzer  # type: ignore[import-not-found]
             except ImportError as error:
                 raise RuntimeError(
                     "GPIO Zero não está instalado. Use CASTLE_HARDWARE=keyboard ou instale python3-gpiozero."
