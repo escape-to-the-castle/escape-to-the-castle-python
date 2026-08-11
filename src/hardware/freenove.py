@@ -162,17 +162,15 @@ class FreenoveHardware(HardwareInterface):
         colors = {
             "correct": (False, True, False),
             "error": (True, False, False),
-            "shield": (False, False, True),
             "neutral": (False, False, False),
         }
         red, green, blue = colors.get(state.feedback, colors["neutral"])
         for led, enabled in zip(self._leds.values(), (red, green, blue)):
             led.on() if enabled else led.off()
 
-        if state.feedback in {"correct", "error", "shield"} and state.feedback != self._last_feedback:
-            frequency = {"correct": 880.0, "error": 220.0, "shield": 660.0}[state.feedback]
-            duration = 0.1 if state.feedback == "shield" else 0.08
-            self._play_feedback_tone(frequency, duration)
+        if state.feedback in {"correct", "error"} and state.feedback != self._last_feedback:
+            frequency = 880.0 if state.feedback == "correct" else 220.0
+            self._play_feedback_tone(frequency, 0.08)
         self._last_feedback = state.feedback
 
     def _play_feedback_tone(self, frequency: float, duration: float) -> None:

@@ -112,7 +112,7 @@ def test_returning_to_menu_stops_every_active_sound():
     assert all(sound.stop.call_count == 1 for sound in sounds.values())
 
 
-def test_receiving_shield_does_not_start_a_buzzer_sound():
+def test_receiving_shield_plays_powerup_without_hardware_feedback():
     game = Game()
     game.start_phase(PhaseId.PROTOTYPE)
     game.current_question = game.question_bank.next_question()
@@ -124,8 +124,8 @@ def test_receiving_shield_does_not_start_a_buzzer_sound():
     ) as play_sound, patch.object(game, "update_hardware_outputs") as update_outputs:
         game.resolve_answer(game.current_question.correct_index)
 
-    assert play_sound.call_args_list == [call("coin")]
-    update_outputs.assert_called_once_with("shield")
+    assert play_sound.call_args_list == [call("coin"), call("power_up")]
+    update_outputs.assert_called_once_with("neutral")
     assert game.has_shield
     assert game.speed_boost_until > 103.0
 

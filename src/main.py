@@ -158,8 +158,7 @@ class Game:
                 progress=min(1.0, self.player.x / self.castle.rect.x),
                 lives=self.lives,
                 coins=self.coins,
-                feedback=feedback
-                or ("shield" if self.has_shield else "neutral"),
+                feedback=feedback or "neutral",
             )
         )
 
@@ -188,6 +187,7 @@ class Game:
             if self.streak == 3:
                 self.has_shield = True
                 shield_activated = True
+                self.play_sound("power_up")
             if self.streak == 5:
                 self.lives += 1
             if bonus:
@@ -203,7 +203,7 @@ class Game:
             self.active_portal_index = None
         self.feedback_until = time.monotonic() + 2.4
         self.state = GameState.FEEDBACK
-        feedback = "shield" if shield_activated else (
+        feedback = "neutral" if shield_activated else (
             "correct" if selected == self.current_question.correct_index else "error"
         )
         self.update_hardware_outputs(feedback)

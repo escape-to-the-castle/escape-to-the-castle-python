@@ -107,7 +107,7 @@ def test_freenove_adapter_updates_outputs_and_closes_devices():
     assert all(device.closed for device in created)
 
 
-def test_active_shield_beeps_only_once_on_activation():
+def test_active_shield_has_no_led_or_buzzer_feedback():
     def factory(pin: int, **kwargs) -> FakeDevice:
         return FakeDevice(pin, **kwargs)
 
@@ -117,8 +117,8 @@ def test_active_shield_beeps_only_once_on_activation():
     hardware.update_outputs(OutputState(feedback="shield"))
     hardware.update_outputs(OutputState(feedback="shield"))
 
-    assert hardware._buzzer.beeps == 1
-    assert hardware._leds["blue"].active is True
+    assert hardware._buzzer.beeps == 0
+    assert all(led.active is False for led in hardware._leds.values())
 
 
 def test_joystick_maps_only_x_axis_and_start_click_to_game_actions():

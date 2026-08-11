@@ -6,7 +6,7 @@
 |---|---|
 | Joystick | Movimentação do personagem e menus |
 | Quatro botões | Alternativas A, B, C e D |
-| LED RGB | Verde para acerto, vermelho para erro e azul para bônus |
+| LED RGB | Verde para acerto e vermelho para erro |
 | Buzzer passivo | Efeitos de acerto, erro, dano e vitória |
 | Servo motor | Indicador físico do progresso até o castelo |
 | LCD | Pontuação, vidas, pergunta resumida ou estado |
