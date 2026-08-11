@@ -15,7 +15,8 @@ class JoystickConfig:
     button_pin: int = 7
     low_threshold: int = 80
     high_threshold: int = 175
-    invert_x: bool = False
+    # No módulo Freenove, os valores do eixo X crescem para a esquerda.
+    invert_x: bool = True
     invert_y: bool = False
 
     @classmethod

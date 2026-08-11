@@ -116,14 +116,14 @@ def test_joystick_maps_x_axis_roll_and_click_to_game_actions():
         button_factory=lambda _pin, **_kwargs: button,
     )
 
-    assert joystick.poll_actions() == {Action.MOVE_LEFT, Action.ROLL}
-    assert joystick.poll_actions() == {Action.MOVE_LEFT}
+    assert joystick.poll_actions() == {Action.MOVE_RIGHT, Action.ROLL}
+    assert joystick.poll_actions() == {Action.MOVE_RIGHT}
 
     adc.values[5] = 220
     adc.values[6] = 128
     button.is_pressed = True
-    assert joystick.poll_actions() == {Action.MOVE_RIGHT, Action.JUMP, Action.START}
-    assert joystick.poll_actions() == {Action.MOVE_RIGHT}
+    assert joystick.poll_actions() == {Action.MOVE_LEFT, Action.JUMP, Action.START}
+    assert joystick.poll_actions() == {Action.MOVE_LEFT}
 
     joystick.close()
     assert adc.closed and button.closed

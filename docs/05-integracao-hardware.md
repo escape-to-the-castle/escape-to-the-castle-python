@@ -85,15 +85,16 @@ Calibração opcional do joystick:
 ```bash
 CASTLE_JOYSTICK_LOW=80 \
 CASTLE_JOYSTICK_HIGH=175 \
-CASTLE_JOYSTICK_INVERT_X=0 \
+CASTLE_JOYSTICK_INVERT_X=1 \
 CASTLE_JOYSTICK_INVERT_Y=0 \
 CASTLE_HARDWARE=freenove \
 CASTLE_JOYSTICK_ENABLED=1 \
 python -m src.main
 ```
 
-Se esquerda e direita estiverem trocadas, use
-`CASTLE_JOYSTICK_INVERT_X=1`. A zona entre `LOW` e `HIGH` é neutra e evita
+O eixo X vem invertido por padrão para corresponder à orientação do módulo
+Freenove. Se a montagem física estiver na orientação oposta, use
+`CASTLE_JOYSTICK_INVERT_X=0`. A zona entre `LOW` e `HIGH` é neutra e evita
 movimento involuntário quando a alavanca está solta.
 
 Antes de abrir o jogo, confira os valores crus e o clique Z:
