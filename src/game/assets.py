@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable
 
@@ -134,6 +135,7 @@ def load_brackeys_sounds(
     root: Path,
     backend: str = "keyboard",
     buzzer_factory: Callable[..., object] | None = None,
+    buzzer: object | None = None,
 ) -> dict[str, object | None]:
     directory = root / "brackeys_platformer_assets" / "sounds"
     sound_files = {
@@ -143,7 +145,10 @@ def load_brackeys_sounds(
         "power_up": "power_up.wav",
     }
 
-    if backend.strip().lower() == "freenove":
+    if backend.strip().lower() in {"freenove", "hybrid"}:
+        if buzzer is not None:
+            library = PassiveBuzzerLibrary(buzzer=buzzer)
+            return {name: library.load_track(directory / filename) for name, filename in sound_files.items()}
         factory = buzzer_factory
         if factory is None:
             try:
@@ -154,7 +159,8 @@ def load_brackeys_sounds(
                 ) from error
             factory = TonalBuzzer
 
-        library = PassiveBuzzerLibrary(factory, 26)
+        buzzer_pin = int(os.getenv("CASTLE_PIN_BUZZER", "4"))
+        library = PassiveBuzzerLibrary(factory, buzzer_pin)
         return {name: library.load_track(directory / filename) for name, filename in sound_files.items()}
 
     return {name: load_sound(directory / filename) for name, filename in sound_files.items()}
