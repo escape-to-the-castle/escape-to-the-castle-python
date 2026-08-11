@@ -3,6 +3,7 @@ import math
 import wave
 from pathlib import Path
 
+from src.game.assets import load_brackeys_sounds
 from src.hardware.factory import create_hardware
 from src.hardware.freenove import FreenoveHardware
 from src.hardware.interface import Action, OutputState
@@ -192,6 +193,20 @@ def test_buzzer_rom_manifest_can_roundtrip(tmp_path: Path):
 
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert data["sounds"]["jump"][0]["tone"] == 153
+
+
+def test_sound_loader_reuses_existing_hardware_buzzer(tmp_path: Path):
+    manifest_path = tmp_path / "data" / "buzzer_roms.json"
+    manifest_path.parent.mkdir()
+    manifest_path.write_text(
+        json.dumps({"sounds": {"jump": [{"tone": 153, "duration_ticks": 2}]}}),
+        encoding="utf-8",
+    )
+    buzzer = FakeDevice(4)
+
+    sounds = load_brackeys_sounds(tmp_path, backend="freenove", buzzer=buzzer)
+
+    assert sounds["jump"]._buzzer is buzzer
 
 
 def test_passive_track_stops_buzzer_even_when_play_fails():

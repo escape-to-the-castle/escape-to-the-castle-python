@@ -135,6 +135,7 @@ def load_brackeys_sounds(
     root: Path,
     backend: str = "keyboard",
     buzzer_factory: Callable[..., object] | None = None,
+    buzzer: object | None = None,
 ) -> dict[str, object | None]:
     directory = root / "brackeys_platformer_assets" / "sounds"
     rom_manifest = root / "data" / "buzzer_roms.json"
@@ -146,6 +147,12 @@ def load_brackeys_sounds(
     }
 
     if backend.strip().lower() == "freenove":
+        if buzzer is not None:
+            library = PassiveBuzzerLibrary(buzzer=buzzer)
+            if rom_manifest.exists():
+                return library.load_rom_manifest(rom_manifest)
+            return {name: library.load_track(directory / filename) for name, filename in sound_files.items()}
+
         factory = buzzer_factory
         if factory is None:
             try:
@@ -156,7 +163,7 @@ def load_brackeys_sounds(
                 ) from error
             factory = TonalBuzzer
 
-        library = PassiveBuzzerLibrary(factory, 26)
+        library = PassiveBuzzerLibrary(factory, 4)
         if rom_manifest.exists():
             return library.load_rom_manifest(rom_manifest)
         return {name: library.load_track(directory / filename) for name, filename in sound_files.items()}
