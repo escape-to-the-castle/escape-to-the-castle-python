@@ -179,6 +179,7 @@ class Game:
         assert self.current_question is not None
         now = time.monotonic()
         elapsed = now - self.question_started
+        shield_activated = False
         if selected == self.current_question.correct_index:
             bonus = 5 if elapsed <= 5.0 else 0
             self.coins += 10 + bonus
@@ -186,6 +187,7 @@ class Game:
             self.streak += 1
             if self.streak == 3:
                 self.has_shield = True
+                shield_activated = True
             if self.streak == 5:
                 self.lives += 1
             if bonus:
@@ -201,7 +203,10 @@ class Game:
             self.active_portal_index = None
         self.feedback_until = time.monotonic() + 2.4
         self.state = GameState.FEEDBACK
-        self.update_hardware_outputs("correct" if selected == self.current_question.correct_index else "error")
+        feedback = "shield" if shield_activated else (
+            "correct" if selected == self.current_question.correct_index else "error"
+        )
+        self.update_hardware_outputs(feedback)
 
     def on_hazard(self, cause: str) -> None:
         now = self.animation_time

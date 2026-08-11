@@ -54,7 +54,9 @@ class MovingObstacleSpec:
     height: int = 24
 
 
-QUESTION_MARKER_SIZE = 24
+# O marcador é desenhado com 30 px; a colisão deve coincidir com a moeda
+# visível para não haver contato aparente sem abrir a pergunta.
+QUESTION_MARKER_SIZE = 30
 
 
 def make_question_marker(center_x: int, center_y: int) -> WorldObject:

@@ -121,10 +121,11 @@ def test_receiving_shield_does_not_start_a_buzzer_sound():
 
     with patch("src.main.time.monotonic", return_value=103.0), patch.object(
         game, "play_sound"
-    ) as play_sound:
+    ) as play_sound, patch.object(game, "update_hardware_outputs") as update_outputs:
         game.resolve_answer(game.current_question.correct_index)
 
     assert play_sound.call_args_list == [call("coin")]
+    update_outputs.assert_called_once_with("shield")
     assert game.has_shield
     assert game.speed_boost_until > 103.0
 
@@ -513,7 +514,31 @@ def test_question_symbol_disappears_only_after_the_answer():
 
 def test_question_marker_uses_a_coin_sized_hitbox():
     layout = build_phase_2_layout()
-    assert all(marker.rect.size == (24, 24) for marker in layout.portals)
+    assert all(marker.rect.size == (30, 30) for marker in layout.portals)
+
+
+def test_every_phase_2_question_coin_opens_its_question():
+    game = Game()
+
+    for portal_index in range(6):
+        game.start_phase(PhaseId.PHASE_2)
+        portal = game.portals[portal_index]
+        supports = [
+            solid
+            for solid in [*game.ground_segments, *game.platforms]
+            if solid.rect.left <= portal.rect.centerx < solid.rect.right
+            and solid.rect.top >= portal.rect.bottom
+        ]
+        support = min(supports, key=lambda solid: solid.rect.top)
+        game.player.x = float(portal.rect.centerx - Player.WIDTH // 2)
+        game.player.y = float(support.rect.top - Player.HEIGHT)
+        game.player.on_ground = True
+        game.player.vy = 0.0
+
+        game.update(0.0, set())
+
+        assert game.state == GameState.QUESTION
+        assert game.active_portal_index == portal_index
 
 
 def test_losing_shield_does_not_open_feedback_modal():
