@@ -177,20 +177,32 @@ class PassiveBuzzerTrack:
         thread = threading.Thread(target=self._run, args=(generation,), daemon=True)
         thread.start()
 
+    def stop(self) -> None:
+        """Cancela a reprodução e silencia o buzzer imediatamente."""
+        with self._lock:
+            self._generation += 1
+        self._stop()
+
     def _run(self, generation: int) -> None:
-        for event in self._events:
-            if generation != self._generation:
-                break
+        try:
+            for event in self._events:
+                if generation != self._generation:
+                    break
 
-            if event.frequency is None:
+                if event.frequency is None:
+                    self._stop()
+                else:
+                    self._play_frequency(event.frequency)
+
+                time.sleep(event.duration)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            # Falhas de tom não podem derrubar o jogo nem deixar PWM ativo.
+            pass
+        finally:
+            # Mesmo que GPIO Zero rejeite uma frequência, o PWM nunca pode
+            # permanecer ativo indefinidamente.
+            if generation == self._generation:
                 self._stop()
-            else:
-                self._play_frequency(event.frequency)
-
-            time.sleep(event.duration)
-
-        if generation == self._generation:
-            self._stop()
 
     def _play_frequency(self, frequency: float) -> None:
         if hasattr(self._buzzer, "play"):
@@ -211,8 +223,12 @@ class PassiveBuzzerRomTrack(PassiveBuzzerTrack):
 
 
 class PassiveBuzzerLibrary:
-    def __init__(self, buzzer_factory: Any, pin: int) -> None:
-        self._buzzer = buzzer_factory(pin)
+    def __init__(self, buzzer_factory: Any | None = None, pin: int | None = None, buzzer: Any | None = None) -> None:
+        if buzzer is None:
+            if buzzer_factory is None or pin is None:
+                raise ValueError("Informe um buzzer existente ou uma fábrica e um pino")
+            buzzer = buzzer_factory(pin)
+        self._buzzer = buzzer
 
     def load_track(self, path: Path) -> PassiveBuzzerTrack:
         return PassiveBuzzerRomTrack(self._buzzer, wav_to_rom_steps(path))

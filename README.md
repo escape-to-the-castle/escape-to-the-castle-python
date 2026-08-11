@@ -50,6 +50,18 @@ python -m src.main
 | R | Reiniciar após derrota ou vitória |
 | Esc | Sair |
 
+Na placa Freenove:
+
+| Controle | Ação |
+|---|---|
+| Joystick horizontal | Movimentar |
+| Joystick para baixo | Rolar |
+| Clique do joystick | Pular |
+| Botão vermelho | Alternativa 1 / reiniciar |
+| Botão amarelo | Alternativa 2 |
+| Botão azul | Alternativa 3 |
+| Botão verde | Alternativa 4 |
+
 ## Integração futura com o kit Freenove
 
 O teclado continua sendo o controle padrão. A camada GPIO Zero já pode ser
@@ -57,8 +69,12 @@ selecionada no Raspberry Pi sem alterar as regras do jogo:
 
 ```bash
 sudo apt install python3-gpiozero
-CASTLE_HARDWARE=freenove python -m src.main
+CASTLE_HARDWARE=freenove CASTLE_JOYSTICK_ENABLED=1 python -m src.main
 ```
+
+O joystick requer I²C habilitado. Se `ADCDevice.py` da Freenove estiver na raiz
+do projeto ele será usado; caso contrário, o jogo utiliza o driver ADS7830
+interno via SMBus.
 
 Antes de ativar esse modo, confira a montagem e a pinagem BCM descritas em
 [`docs/05-integracao-hardware.md`](docs/05-integracao-hardware.md). Em um

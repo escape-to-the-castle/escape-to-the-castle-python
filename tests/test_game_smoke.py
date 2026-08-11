@@ -1,5 +1,5 @@
 import os
-from unittest.mock import call, patch
+from unittest.mock import Mock, call, patch
 
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -100,6 +100,16 @@ def test_all_gameplay_sounds_are_loaded():
 
     assert set(game.sounds) == {"coin", "jump", "hurt", "power_up"}
     assert all(sound is not None for sound in game.sounds.values())
+
+
+def test_returning_to_menu_stops_every_active_sound():
+    game = Game()
+    sounds = {name: Mock() for name in game.sounds}
+    game.sounds = sounds
+
+    game.show_main_menu()
+
+    assert all(sound.stop.call_count == 1 for sound in sounds.values())
 
 
 def test_correct_answer_plays_coin_and_shield_sounds_but_not_speed_sound():
@@ -251,6 +261,36 @@ def test_menu_does_not_reveal_question_counts():
         game.draw_main_menu()
 
     assert not any("pergunta" in text.lower() for text in rendered_texts)
+
+
+def test_red_button_restarts_after_game_over():
+    game = Game()
+    game.start_phase(PhaseId.PHASE_2)
+    game.state = GameState.GAME_OVER
+
+    game.update(1 / 60, {Action.ANSWER_1})
+
+    assert game.state == GameState.MENU
+
+
+def test_questions_show_button_colors_instead_of_numbers():
+    game = Game()
+    game.start_phase(PhaseId.PHASE_2)
+    game.current_question = game.question_bank.next_question()
+    rendered_texts: list[str] = []
+    original_draw_text = game.draw_text
+
+    def record_text(text, *args, **kwargs):
+        rendered_texts.append(text)
+        return original_draw_text(text, *args, **kwargs)
+
+    with patch.object(game, "draw_text", side_effect=record_text):
+        game.draw_question()
+
+    assert any(text.startswith("VERMELHO:") for text in rendered_texts)
+    assert any(text.startswith("AMARELO:") for text in rendered_texts)
+    assert any(text.startswith("AZUL:") for text in rendered_texts)
+    assert any(text.startswith("VERDE:") for text in rendered_texts)
 
 
 def test_gameplay_phase_renders_with_all_visual_constants():

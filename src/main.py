@@ -35,6 +35,13 @@ from .monitoring.performance import PerformanceMonitor
 
 ROOT = Path(__file__).resolve().parents[1]
 
+ANSWER_BUTTONS = (
+    ("VERMELHO", (232, 65, 72)),
+    ("AMARELO", (245, 196, 66)),
+    ("AZUL", (67, 135, 230)),
+    ("VERDE", (70, 176, 103)),
+)
+
 
 class GameState(Enum):
     INTRO = auto()
@@ -58,9 +65,13 @@ class Game:
         self.large_font = pygame.font.Font(None, 56)
         self.sprites = load_brackeys_sprites(ROOT)
         self.hardware_mode = os.getenv("CASTLE_HARDWARE", "keyboard")
-        self.sounds = load_brackeys_sounds(ROOT, backend=self.hardware_mode)
         self.platform_strip_cache: dict[tuple[int, int], pygame.Surface] = {}
         self.hardware = create_hardware()
+        self.sounds = load_brackeys_sounds(
+            ROOT,
+            backend=self.hardware_mode,
+            buzzer=getattr(self.hardware, "audio_buzzer", None),
+        )
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")
         self.monitor = PerformanceMonitor()
         self.running = True
@@ -115,6 +126,7 @@ class Game:
         self.state = GameState.INTRO
 
     def show_main_menu(self) -> None:
+        self.stop_sounds()
         self.state = GameState.MENU
         self.feedback_text = ""
         self.feedback_until = 0.0
@@ -122,6 +134,7 @@ class Game:
         self.current_question = None
 
     def start_phase(self, phase: PhaseId) -> None:
+        self.stop_sounds()
         self.current_phase = phase
         self.active_layout = build_layout(phase)
         self.question_bank.reset_round()
@@ -151,9 +164,16 @@ class Game:
         )
 
     def play_sound(self, name: str) -> None:
+        self.stop_sounds()
         sound = self.sounds.get(name)
         if sound is not None:
             sound.play()
+
+    def stop_sounds(self) -> None:
+        for sound in self.sounds.values():
+            stop = getattr(sound, "stop", None)
+            if callable(stop):
+                stop()
 
     def resolve_answer(self, selected: int) -> None:
         assert self.current_question is not None
@@ -242,7 +262,7 @@ class Game:
             return
 
         if self.state in (GameState.GAME_OVER, GameState.VICTORY):
-            if Action.RESTART in actions:
+            if Action.RESTART in actions or Action.ANSWER_1 in actions:
                 self.show_main_menu()
             return
 
@@ -637,9 +657,9 @@ class Game:
         self.draw_text("Cada caminho leva a um novo desafio", WIDTH // 2, 122, self.small_font, center=True, color=(184, 205, 232))
 
         cards = (
-            (pygame.Rect(65, 170, 250, 225), "1", "PROTÓTIPO", "A aventura original", (94, 170, 255)),
-            (pygame.Rect(355, 170, 250, 225), "2", "FASE 1", "Saltos e desníveis", (255, 173, 72)),
-            (pygame.Rect(645, 170, 250, 225), "3", "FASE 2", "O desafio completo", (255, 75, 82)),
+            (pygame.Rect(65, 170, 250, 225), "VERMELHO", "PROTÓTIPO", "A aventura original", ANSWER_BUTTONS[0][1]),
+            (pygame.Rect(355, 170, 250, 225), "AMARELO", "FASE 1", "Saltos e desníveis", ANSWER_BUTTONS[1][1]),
+            (pygame.Rect(645, 170, 250, 225), "AZUL", "FASE 2", "O desafio completo", ANSWER_BUTTONS[2][1]),
         )
         for card, key, title, description, accent in cards:
             shadow = card.move(0, 8)
@@ -648,13 +668,13 @@ class Game:
             pygame.draw.rect(self.screen, accent, card, width=2, border_radius=20)
             pygame.draw.rect(self.screen, accent, (card.x, card.y, card.width, 7), border_radius=4)
 
-            badge = pygame.Rect(card.x + 20, card.y + 27, 46, 46)
+            badge = pygame.Rect(card.x + 20, card.y + 27, 116, 42)
             pygame.draw.rect(self.screen, accent, badge, border_radius=12)
-            self.draw_text(key, badge.centerx, badge.centery, self.font, center=True, color=(12, 16, 25))
+            self.draw_text(key, badge.centerx, badge.centery, self.small_font, center=True, color=(12, 16, 25))
             self.draw_text(title, card.x + 20, card.y + 93, self.font, color=(250, 250, 252))
             self.draw_text(description, card.x + 20, card.y + 137, self.small_font, color=(184, 197, 216))
 
-        self.draw_text("PRESSIONE 1, 2 OU 3 PARA COMEÇAR", WIDTH // 2, 464, self.small_font, center=True, color=(218, 226, 239))
+        self.draw_text("USE VERMELHO, AMARELO OU AZUL PARA COMEÇAR", WIDTH // 2, 464, self.small_font, center=True, color=(218, 226, 239))
 
     def draw_intro(self) -> None:
         self.draw_background(0)
@@ -736,9 +756,9 @@ class Game:
             pygame.draw.rect(self.screen, (255, 68, 68), panel, width=2, border_radius=18)
             self.draw_wrapped(self.feedback_text, panel.inflate(-40, -40), self.font, color=(255, 246, 246))
         elif self.state == GameState.GAME_OVER:
-            self.draw_end_screen("Fim de jogo", "Pressione R para voltar ao menu")
+            self.draw_end_screen("Fim de jogo", "Pressione o botão VERMELHO para voltar ao menu")
         elif self.state == GameState.VICTORY:
-            self.draw_end_screen("Você chegou ao castelo!", f"Moedas conquistadas: {self.coins} - Pressione R")
+            self.draw_end_screen("Você chegou ao castelo!", f"Moedas: {self.coins} - pressione o botão VERMELHO")
 
         pygame.display.flip()
 
@@ -753,10 +773,12 @@ class Game:
         self.draw_text(self.current_question.category.upper(), WIDTH // 2, 94, self.small_font, center=True, color=(255, 170, 170))
         self.draw_wrapped(self.current_question.text, pygame.Rect(120, 126, 720, 86), self.font, color=(255, 245, 245))
         for i, option in enumerate(self.current_question.options):
+            button_name, button_color = ANSWER_BUTTONS[i]
             option_rect = pygame.Rect(120, 230 + i * 50, 720, 38)
             pygame.draw.rect(self.screen, (32, 32, 38), option_rect, border_radius=10)
-            pygame.draw.rect(self.screen, (255, 68, 68), option_rect, width=2, border_radius=10)
-            self.draw_text(f"{i + 1}. {option}", option_rect.x + 18, option_rect.y + 7, self.small_font, color=(240, 240, 240))
+            pygame.draw.rect(self.screen, button_color, option_rect, width=2, border_radius=10)
+            pygame.draw.circle(self.screen, button_color, (option_rect.x + 18, option_rect.centery), 7)
+            self.draw_text(f"{button_name}: {option}", option_rect.x + 34, option_rect.y + 7, self.small_font, color=(240, 240, 240))
 
     def draw_end_screen(self, title: str, subtitle: str) -> None:
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -786,7 +808,7 @@ def main() -> int:
     try:
         Game().run()
         return 0
-    except (OSError, ValueError, pygame.error) as error:
+    except (OSError, RuntimeError, ValueError, pygame.error) as error:
         print(f"Erro ao iniciar o jogo: {error}", file=sys.stderr)
         return 1
 
