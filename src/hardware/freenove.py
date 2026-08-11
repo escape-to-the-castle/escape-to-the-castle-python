@@ -7,16 +7,14 @@ import time
 from typing import Any, Callable
 
 from .interface import Action, HardwareInterface, OutputState
+from .joystick import FreenoveJoystick
 
 
 @dataclass(frozen=True)
 class FreenovePinConfig:
     """Pinagem BCM inicial; deve ser conferida antes da montagem física."""
 
-    move_left: int = 26
-    move_right: int = 16
-    jump: int = 20
-    roll: int = 21
+    # Botões coloridos da placa: vermelho, amarelo, azul e verde.
     answer_1: int = 21
     answer_2: int = 26
     answer_3: int = 20
@@ -41,10 +39,6 @@ class FreenovePinConfig:
 
     def validate(self) -> None:
         input_fields = {
-            "move_left",
-            "move_right",
-            "jump",
-            "roll",
             "answer_1",
             "answer_2",
             "answer_3",
@@ -81,6 +75,8 @@ class FreenoveHardware(HardwareInterface):
         button_factory: Callable[..., Any] | None = None,
         led_factory: Callable[..., Any] | None = None,
         buzzer_factory: Callable[..., Any] | None = None,
+        joystick: Any | None = None,
+        enable_joystick: bool | None = None,
     ) -> None:
         self.pins = pins or FreenovePinConfig.from_env()
         self.pins.validate()
@@ -98,10 +94,6 @@ class FreenoveHardware(HardwareInterface):
             buzzer_factory = buzzer_factory or TonalBuzzer
 
         action_pins = {
-            Action.MOVE_LEFT: self.pins.move_left,
-            Action.MOVE_RIGHT: self.pins.move_right,
-            Action.JUMP: self.pins.jump,
-            Action.ROLL: self.pins.roll,
             Action.ANSWER_1: self.pins.answer_1,
             Action.ANSWER_2: self.pins.answer_2,
             Action.ANSWER_3: self.pins.answer_3,
@@ -118,6 +110,15 @@ class FreenoveHardware(HardwareInterface):
         }
         self._continuous_actions = {Action.MOVE_LEFT, Action.MOVE_RIGHT}
         self._previously_pressed: set[Action] = set()
+        if enable_joystick is None:
+            enable_joystick = os.getenv("CASTLE_JOYSTICK_ENABLED", "0").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+        self.joystick = joystick
+        if self.joystick is None and enable_joystick:
+            self.joystick = FreenoveJoystick(button_factory=button_factory)
         self._leds = {
             "red": led_factory(self.pins.led_red),
             "green": led_factory(self.pins.led_green),
@@ -128,6 +129,10 @@ class FreenoveHardware(HardwareInterface):
         self._feedback_lock = threading.Lock()
         self._last_feedback = "neutral"
 
+    @property
+    def audio_buzzer(self):
+        return self._buzzer
+
     def poll_actions(self) -> set[Action]:
         pressed = {action for action, button in self._buttons.items() if button.is_pressed}
         actions = (pressed & self._continuous_actions) | (pressed - self._previously_pressed)
@@ -135,6 +140,8 @@ class FreenoveHardware(HardwareInterface):
             names = ", ".join(sorted(action.name for action in pressed)) or "nenhum"
             print(f"[GPIO] pressionados: {names}", flush=True)
         self._previously_pressed = pressed
+        if self.joystick is not None:
+            actions.update(self.joystick.poll_actions())
         return actions
 
     def pin_summary(self) -> str:
@@ -182,3 +189,5 @@ class FreenoveHardware(HardwareInterface):
     def close(self) -> None:
         for device in [*self._button_devices.values(), *self._leds.values(), self._buzzer]:
             device.close()
+        if self.joystick is not None:
+            self.joystick.close()

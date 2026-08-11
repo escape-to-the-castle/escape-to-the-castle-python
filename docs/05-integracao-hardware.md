@@ -38,18 +38,22 @@ O jogo seleciona a implementação por meio da variável `CASTLE_HARDWARE`:
 - `freenove`: instancia `FreenoveHardware` e acessa os GPIOs físicos.
 
 O adaptador usa numeração **BCM**, botões com `pull_up=True` e debounce de 50 ms.
-Movimento lateral é lido continuamente; salto e respostas são emitidos apenas
-na borda de pressionamento, evitando múltiplos comandos enquanto o botão fica
-segurado. LED RGB e buzzer já recebem o estado de saída abstrato do jogo.
+O eixo X do joystick controla o movimento continuamente, o eixo Y para baixo
+aciona a rolagem e o clique Z pula. As respostas são emitidas apenas na borda
+de pressionamento, evitando múltiplas respostas enquanto o botão fica segurado.
 
 Pinagem inicial centralizada em `FreenovePinConfig`:
 
 | Função | GPIO BCM |
 |---|---:|
-| Esquerda / direita / salto | 17 / 27 / 22 |
-| Respostas 1 a 4 | 5 / 6 / 13 / 19 |
-| LED RGB vermelho / verde / azul | 16 / 20 / 21 |
-| Buzzer | 26 |
+| Joystick Z (clique) | 7 |
+| Joystick X / Y no ADS7830 | canais 5 / 6, I²C `0x48` |
+| Vermelho — alternativa 1 e reiniciar | 21 |
+| Amarelo — alternativa 2 | 26 |
+| Azul — alternativa 3 | 20 |
+| Verde — alternativa 4 | 16 |
+| LED RGB vermelho / verde / azul | 17 / 24 / 12 |
+| Buzzer passivo | 4 |
 
 > Esta pinagem é uma proposta de software, não uma instrução definitiva de
 > montagem. Antes de energizar o circuito, ela deve ser comparada ao modelo do
@@ -60,9 +64,42 @@ Instalação prevista no Raspberry Pi OS:
 
 ```bash
 sudo apt update
-sudo apt install python3-gpiozero
-CASTLE_HARDWARE=freenove python -m src.main
+sudo apt install python3-gpiozero python3-smbus i2c-tools
+sudo raspi-config
+i2cdetect -y 1
+CASTLE_HARDWARE=freenove CASTLE_JOYSTICK_ENABLED=1 python -m src.main
 ```
+
+Em `raspi-config`, habilite `Interface Options → I2C`. O comando `i2cdetect`
+deve mostrar o endereço `48`. O jogo aceita o `ADCDevice.py` oficial da
+Freenove na raiz do repositório, mas também inclui um driver ADS7830 mínimo via
+SMBus para funcionar sem essa cópia.
+
+Calibração opcional do joystick:
+
+```bash
+CASTLE_JOYSTICK_LOW=80 \
+CASTLE_JOYSTICK_HIGH=175 \
+CASTLE_JOYSTICK_INVERT_X=0 \
+CASTLE_JOYSTICK_INVERT_Y=0 \
+CASTLE_HARDWARE=freenove \
+CASTLE_JOYSTICK_ENABLED=1 \
+python -m src.main
+```
+
+Se esquerda e direita estiverem trocadas, use
+`CASTLE_JOYSTICK_INVERT_X=1`. A zona entre `LOW` e `HIGH` é neutra e evita
+movimento involuntário quando a alavanca está solta.
+
+Antes de abrir o jogo, confira os valores crus e o clique Z:
+
+```bash
+python -m src.hardware.joystick_diagnose
+```
+
+Em repouso, X e Y devem ficar entre os limites `LOW` e `HIGH`. Ao mover a
+alavanca, um eixo deve se aproximar de 0 ou 255; ao clicar, Z deve mudar de 0
+para 1.
 
 Para desenvolvimento fora do Raspberry Pi, as fábricas dos dispositivos são
 injetáveis. Assim, entradas, LEDs, buzzer, debounce lógico e encerramento podem
