@@ -65,6 +65,10 @@ Antes de ativar esse modo, confira a montagem e a pinagem BCM descritas em
 computador sem GPIO, não defina `CASTLE_HARDWARE`; nenhum módulo do Raspberry
 Pi será importado.
 
+Nesse modo, os efeitos de áudio deixam de depender do `pygame.mixer` e passam
+a ser aproximados por uma sequência de frequências tocadas no buzzer passivo.
+O modo teclado continua usando os arquivos `.wav` originais via `pygame`.
+
 ## Documentação
 
 - [Motivação](docs/01-motivacao.md)

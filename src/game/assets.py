@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import pygame
 
 from .config import PLAYER_SPRITE_SIZE
+from ..hardware.passive_audio import PassiveBuzzerLibrary
 
 
 PLATFORM_TILE_SIZE = 16
@@ -128,14 +130,31 @@ def load_brackeys_sprites(root: Path) -> dict[str, object]:
     return sprites
 
 
-def load_brackeys_sounds(root: Path) -> dict[str, pygame.mixer.Sound | None]:
+def load_brackeys_sounds(
+    root: Path,
+    backend: str = "keyboard",
+    buzzer_factory: Callable[..., object] | None = None,
+) -> dict[str, object | None]:
     directory = root / "brackeys_platformer_assets" / "sounds"
-    return {
-        name: load_sound(directory / filename)
-        for name, filename in {
-            "coin": "coin.wav",
-            "jump": "jump.wav",
-            "hurt": "hurt.wav",
-            "power_up": "power_up.wav",
-        }.items()
+    sound_files = {
+        "coin": "coin.wav",
+        "jump": "jump.wav",
+        "hurt": "hurt.wav",
+        "power_up": "power_up.wav",
     }
+
+    if backend.strip().lower() == "freenove":
+        factory = buzzer_factory
+        if factory is None:
+            try:
+                from gpiozero import TonalBuzzer
+            except ImportError as error:
+                raise RuntimeError(
+                    "GPIO Zero não está instalado. Use CASTLE_HARDWARE=keyboard ou instale python3-gpiozero."
+                ) from error
+            factory = TonalBuzzer
+
+        library = PassiveBuzzerLibrary(factory, 26)
+        return {name: library.load_track(directory / filename) for name, filename in sound_files.items()}
+
+    return {name: load_sound(directory / filename) for name, filename in sound_files.items()}

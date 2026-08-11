@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
 from enum import Enum, auto
@@ -56,7 +57,8 @@ class Game:
         self.small_font = pygame.font.Font(None, 26)
         self.large_font = pygame.font.Font(None, 56)
         self.sprites = load_brackeys_sprites(ROOT)
-        self.sounds = load_brackeys_sounds(ROOT)
+        self.hardware_mode = os.getenv("CASTLE_HARDWARE", "keyboard")
+        self.sounds = load_brackeys_sounds(ROOT, backend=self.hardware_mode)
         self.platform_strip_cache: dict[tuple[int, int], pygame.Surface] = {}
         self.hardware = create_hardware()
         self.question_bank = QuestionBank(ROOT / "data" / "questions.json")

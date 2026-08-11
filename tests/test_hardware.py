@@ -1,7 +1,12 @@
+import math
+import wave
+from pathlib import Path
+
 from src.hardware.factory import create_hardware
 from src.hardware.freenove import FreenoveHardware
 from src.hardware.interface import Action, OutputState
 from src.hardware.keyboard import KeyboardHardware
+from src.hardware.passive_audio import wav_to_tone_events
 
 
 class FakeDevice:
@@ -62,3 +67,27 @@ def test_freenove_adapter_updates_outputs_and_closes_devices():
 
     hardware.close()
     assert all(device.closed for device in created)
+
+
+def test_wav_analysis_generates_tone_events(tmp_path: Path):
+    wav_path = tmp_path / "tone.wav"
+    sample_rate = 8000
+    duration = 0.2
+    frequency = 440.0
+    amplitude = 12000
+
+    with wave.open(str(wav_path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+
+        frames = bytearray()
+        for index in range(int(sample_rate * duration)):
+            value = int(amplitude * math.sin(2 * math.pi * frequency * index / sample_rate))
+            frames.extend(value.to_bytes(2, byteorder="little", signed=True))
+        wav_file.writeframes(bytes(frames))
+
+    events = wav_to_tone_events(wav_path, window_seconds=0.05)
+
+    assert events
+    assert any(event.frequency is not None and abs(event.frequency - frequency) < 80 for event in events)
