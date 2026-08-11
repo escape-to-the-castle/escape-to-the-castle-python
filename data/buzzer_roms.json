@@ -1,0 +1,54 @@
+{
+  "format": "escape-to-the-castle-buzzer-rom-v1",
+  "duration_ms": 20,
+  "sounds": {
+    "coin": [
+      {
+        "tone": 255,
+        "duration_ticks": 9
+      }
+    ],
+    "jump": [
+      {
+        "tone": 153,
+        "duration_ticks": 2
+      },
+      {
+        "tone": 191,
+        "duration_ticks": 2
+      }
+    ],
+    "hurt": [
+      {
+        "tone": 99,
+        "duration_ticks": 2
+      },
+      {
+        "tone": 0,
+        "duration_ticks": 6
+      }
+    ],
+    "power_up": [
+      {
+        "tone": 176,
+        "duration_ticks": 5
+      },
+      {
+        "tone": 179,
+        "duration_ticks": 5
+      },
+      {
+        "tone": 176,
+        "duration_ticks": 5
+      },
+      {
+        "tone": 179,
+        "duration_ticks": 2
+      },
+      {
+        "tone": 190,
+        "duration_ticks": 1
+      }
+    ]
+  }
+}

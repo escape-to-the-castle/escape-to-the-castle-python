@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 import audioop
@@ -13,6 +15,17 @@ from typing import Any
 class ToneEvent:
     frequency: float | None
     duration: float
+
+
+@dataclass(frozen=True)
+class RomStep:
+    tone: int
+    duration_ticks: int
+
+
+ROM_MIN_FREQUENCY = 55.0
+ROM_MAX_FREQUENCY = 1760.0
+ROM_DURATION_MS = 20
 
 
 def _merge_tone_events(events: list[ToneEvent]) -> tuple[ToneEvent, ...]:
@@ -40,6 +53,48 @@ def _merge_tone_events(events: list[ToneEvent]) -> tuple[ToneEvent, ...]:
     return tuple(merged)
 
 
+def frequency_to_rom_tone(frequency: float | None) -> int:
+    if frequency is None or frequency <= 0:
+        return 0
+
+    clamped_frequency = min(max(frequency, ROM_MIN_FREQUENCY), ROM_MAX_FREQUENCY)
+    span = math.log2(ROM_MAX_FREQUENCY) - math.log2(ROM_MIN_FREQUENCY)
+    normalized = (math.log2(clamped_frequency) - math.log2(ROM_MIN_FREQUENCY)) / span
+    return 1 + round(normalized * 254)
+
+
+def rom_tone_to_frequency(tone: int) -> float | None:
+    if tone <= 0:
+        return None
+
+    normalized = (tone - 1) / 254.0
+    span = math.log2(ROM_MAX_FREQUENCY) - math.log2(ROM_MIN_FREQUENCY)
+    return ROM_MIN_FREQUENCY * (2 ** (normalized * span))
+
+
+def tone_events_to_rom_steps(events: tuple[ToneEvent, ...], duration_ms: int = ROM_DURATION_MS) -> tuple[RomStep, ...]:
+    if duration_ms <= 0:
+        raise ValueError("A duração do passo da ROM precisa ser positiva")
+
+    steps: list[RomStep] = []
+    for event in events:
+        tone = frequency_to_rom_tone(event.frequency)
+        ticks = max(1, round((event.duration * 1000.0) / duration_ms))
+        if steps and steps[-1].tone == tone:
+            steps[-1] = RomStep(tone, steps[-1].duration_ticks + ticks)
+        else:
+            steps.append(RomStep(tone, ticks))
+    return tuple(steps)
+
+
+def rom_steps_to_tone_events(steps: tuple[RomStep, ...], duration_ms: int = ROM_DURATION_MS) -> tuple[ToneEvent, ...]:
+    events: list[ToneEvent] = []
+    for step in steps:
+        duration = step.duration_ticks * duration_ms / 1000.0
+        events.append(ToneEvent(rom_tone_to_frequency(step.tone), duration))
+    return tuple(events)
+
+
 def wav_to_tone_events(path: Path, window_seconds: float = 0.05) -> tuple[ToneEvent, ...]:
     """Converte um WAV PCM em uma sequência curta de tons e pausas."""
 
@@ -63,7 +118,7 @@ def wav_to_tone_events(path: Path, window_seconds: float = 0.05) -> tuple[ToneEv
             raise ValueError(f"{path.name} precisa ser mono ou estéreo")
 
     full_scale = float((1 << (8 * sample_width - 1)) - 1)
-    silence_threshold = max(700.0, full_scale * 0.03)
+    silence_threshold = max(4.0, full_scale * 0.01)
     chunk_size = max(sample_width, int(sample_rate * window_seconds) * sample_width)
 
     events: list[ToneEvent] = []
@@ -89,6 +144,23 @@ def wav_to_tone_events(path: Path, window_seconds: float = 0.05) -> tuple[ToneEv
         events.append(ToneEvent(estimated_frequency, duration))
 
     return _merge_tone_events(events)
+
+
+def wav_to_rom_steps(path: Path, window_seconds: float = 0.05) -> tuple[RomStep, ...]:
+    return tone_events_to_rom_steps(wav_to_tone_events(path, window_seconds))
+
+
+def serialize_rom_steps(steps: tuple[RomStep, ...]) -> str:
+    return json.dumps(
+        [{"tone": step.tone, "duration_ticks": step.duration_ticks} for step in steps],
+        ensure_ascii=True,
+        indent=2,
+    )
+
+
+def deserialize_rom_steps(payload: str) -> tuple[RomStep, ...]:
+    data = json.loads(payload)
+    return tuple(RomStep(int(item["tone"]), int(item["duration_ticks"])) for item in data)
 
 
 class PassiveBuzzerTrack:
@@ -133,12 +205,31 @@ class PassiveBuzzerTrack:
             self._buzzer.off()
 
 
+class PassiveBuzzerRomTrack(PassiveBuzzerTrack):
+    def __init__(self, buzzer: Any, steps: tuple[RomStep, ...]) -> None:
+        super().__init__(buzzer, rom_steps_to_tone_events(steps))
+
+
 class PassiveBuzzerLibrary:
     def __init__(self, buzzer_factory: Any, pin: int) -> None:
         self._buzzer = buzzer_factory(pin)
 
     def load_track(self, path: Path) -> PassiveBuzzerTrack:
-        return PassiveBuzzerTrack(self._buzzer, wav_to_tone_events(path))
+        return PassiveBuzzerRomTrack(self._buzzer, wav_to_rom_steps(path))
+
+    def load_rom_payload(self, payload: str) -> dict[str, PassiveBuzzerRomTrack]:
+        manifest = json.loads(payload)
+        sounds = manifest.get("sounds", {})
+        return {
+            name: PassiveBuzzerRomTrack(
+                self._buzzer,
+                tuple(RomStep(int(item["tone"]), int(item["duration_ticks"])) for item in steps),
+            )
+            for name, steps in sounds.items()
+        }
+
+    def load_rom_manifest(self, path: Path) -> dict[str, PassiveBuzzerRomTrack]:
+        return self.load_rom_payload(path.read_text(encoding="utf-8"))
 
     def close(self) -> None:
         if hasattr(self._buzzer, "close"):

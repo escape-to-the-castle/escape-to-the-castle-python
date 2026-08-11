@@ -136,6 +136,7 @@ def load_brackeys_sounds(
     buzzer_factory: Callable[..., object] | None = None,
 ) -> dict[str, object | None]:
     directory = root / "brackeys_platformer_assets" / "sounds"
+    rom_manifest = root / "data" / "buzzer_roms.json"
     sound_files = {
         "coin": "coin.wav",
         "jump": "jump.wav",
@@ -155,6 +156,8 @@ def load_brackeys_sounds(
             factory = TonalBuzzer
 
         library = PassiveBuzzerLibrary(factory, 26)
+        if rom_manifest.exists():
+            return library.load_rom_manifest(rom_manifest)
         return {name: library.load_track(directory / filename) for name, filename in sound_files.items()}
 
     return {name: load_sound(directory / filename) for name, filename in sound_files.items()}
